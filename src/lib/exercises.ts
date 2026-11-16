@@ -30,17 +30,25 @@ export function equipmentLabel(key: Equipment): string {
 }
 
 /** 기본 종목 중 아직 없는 것을 넣는다. 앱을 열 때마다 불러도 된다. */
+/** 이름 비교용: 띄어쓰기와 대소문자를 무시한다. "스티프데드리프트"와 "스티프 데드리프트"는 같은 종목이다. */
+export function nameKey(name: string): string {
+  return name.replace(/\s+/g, '').toLowerCase()
+}
+
 export async function ensureSeedExercises(): Promise<void> {
   await db.transaction('rw', db.exercises, async () => {
-    const have = new Set(await db.exercises.toCollection().primaryKeys())
-    const missing = SEED_EXERCISES.filter((s) => !have.has(s.id))
+    const all = await db.exercises.toArray()
+    const have = new Set(all.map((e) => e.id))
+    // 사용자가 같은 이름으로 먼저 만든 종목이 있으면 기본 종목을 또 넣지 않는다(목록에 이름이 두 번 나오지 않도록).
+    const names = new Set(all.map((e) => nameKey(e.name)))
+    const missing = SEED_EXERCISES.filter((s) => !have.has(s.id) && !names.has(nameKey(s.name)))
     if (missing.length === 0) return
     const now = Date.now()
     await db.exercises.bulkAdd(missing.map((s) => ({ ...s, isCustom: false, createdAt: now })))
   })
 }
 
-/** 내 종목 추가. 같은 이름이 이미 있으면 그 종목의 id를 돌려준다. */
+/** 내 종목 추가. 같은 이름(띄어쓰기, 대소문자 무시)이 이미 있으면 그 종목의 id를 돌려준다. */
 export async function addCustomExercise(input: {
   name: string
   bodyPart: BodyPart
@@ -52,7 +60,7 @@ export async function addCustomExercise(input: {
 
   return db.transaction('rw', db.exercises, async () => {
     const all = await db.exercises.toArray()
-    const same = all.find((e) => e.name.toLowerCase() === name.toLowerCase())
+    const same = all.find((e) => nameKey(e.name) === nameKey(name))
     if (same) return same.id
     const id = newId()
     await db.exercises.add({
