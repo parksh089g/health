@@ -179,7 +179,7 @@ function RoutinesSection({
       </div>
       <ul className="mt-3 grid gap-2">
         {routines.slice(0, HOME_ROUTINE_COUNT).map(({ routine, names, missingCount }) => (
-          <li key={routine.id} className="flex items-center rounded-2xl border border-line bg-surface">
+          <li key={routine.id} className="flex min-w-0 items-center rounded-2xl border border-line bg-surface">
             <Link
               to={`/routines/${routine.id}`}
               className="min-w-0 flex-1 rounded-l-2xl py-3 pl-4 pr-2 active:bg-surface-2"

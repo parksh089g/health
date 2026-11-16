@@ -141,6 +141,22 @@ export interface AiWorkoutFeedback {
   points: string[]
 }
 
+/** AI가 제안한 루틴 하나(아직 저장하지 않은 것) (4단계) */
+export interface AiRoutineProposal {
+  id: string
+  name: string
+  /** 이렇게 짠 까닭 한 줄 */
+  rationale: string
+  items: RoutineItem[]
+}
+
+/** AI로 루틴 만들기의 가장 최근 제안. 마음에 드는 것만 골라 루틴으로 저장한다. */
+export interface AiRoutineDraft {
+  /** 사용자가 적은 요청 */
+  request: string
+  routines: AiRoutineProposal[]
+}
+
 /** AI에게 알려 두는 내 목표와 상황. 요청할 때마다 함께 보낸다. (4단계) */
 export interface AiProfile {
   goal: 'hypertrophy' | 'strength' | 'fat-loss' | 'health' | null
@@ -159,9 +175,10 @@ export type AiAdvice =
   | AiAdviceBase<'workout', AiWorkoutAdvice>
   | AiAdviceBase<'review', AiReview>
   | AiAdviceBase<'feedback', AiWorkoutFeedback>
+  | AiAdviceBase<'routines', AiRoutineDraft>
 
 interface AiAdviceBase<K extends string, D> {
-  /** 'workout:<운동 id>', 'feedback:<운동 id>' 또는 'review'(가장 최근 분석 하나만 남긴다) */
+  /** 'workout:<운동 id>', 'feedback:<운동 id>', 'review' 또는 'routines'(뒤의 둘은 가장 최근 것 하나만 남긴다) */
   id: string
   kind: K
   /** 운동 추천이나 피드백이면 그 운동 id, 분석이면 null */

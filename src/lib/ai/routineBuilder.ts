@@ -1,4 +1,4 @@
-import { db, type RoutineItem } from '../../db'
+import { db, type AiAdvice, type AiRoutineDraft, type AiRoutineProposal, type RoutineItem } from '../../db'
 import { newId } from '../id'
 import { createRoutine, MISSING_EXERCISE_NAME, ROUTINE_NAME_MAX, ROUTINE_SETS_RANGE } from '../routines'
 import { once, requireKey, type AdviceMeta } from './advice'
@@ -22,36 +22,7 @@ export const PROPOSAL_REPS_RANGE = { min: 1, max: 50 } as const
 /** 제안 한 개에 받아 주는 종목 수 */
 const PROPOSAL_ITEMS_MAX = 12
 
-/** AI가 제안한 루틴 하나(아직 저장하지 않은 것) */
-export interface AiRoutineProposal {
-  id: string
-  name: string
-  /** 이렇게 짠 까닭 한 줄 */
-  rationale: string
-  items: RoutineItem[]
-}
-
-export interface AiRoutineDraft {
-  /** 사용자가 적은 요청 */
-  request: string
-  routines: AiRoutineProposal[]
-}
-
-/**
- * 제안은 aiAdvice 테이블에 한 줄로 둔다(백업에 넣지 않고, 복원하면 지워지는 것이 다른 AI 답과 같다).
- * db.ts의 AiAdvice에는 이 종류가 없어서 같은 테이블을 이 모양으로 따로 본다.
- */
-interface RoutineDraftRow {
-  id: string
-  kind: 'routines'
-  workoutId: null
-  createdAt: number
-  model: string
-  costUsd: number
-  data: AiRoutineDraft
-}
-
-const draftTable = () => db.table<RoutineDraftRow, string>('aiAdvice')
+export type { AiRoutineDraft, AiRoutineProposal }
 
 export const ROUTINE_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코치입니다. 사용자가 원하는 루틴을 짧게 적어 보내면, 앱에 저장할 수 있는 루틴을 1~4개 제안합니다. 사용자는 폰에서 제안을 미리 보고 마음에 드는 것만 골라 저장합니다.
 
@@ -182,7 +153,7 @@ async function fetchRoutineProposals(requestText: string, now: number): Promise<
   // 답을 읽지 못해도 요금은 이미 들었으니 센다.
   await addAiUsage(res.costUsd)
   const data: AiRoutineDraft = { request, routines: parseRoutineProposals(res.value, ctx.candidates) }
-  await draftTable().put({
+  await db.aiAdvice.put({
     id: ROUTINE_DRAFT_ID,
     kind: 'routines',
     workoutId: null,
@@ -208,8 +179,8 @@ export interface RoutineDraftView {
   meta: AdviceMeta
 }
 
-async function readDraftRow(): Promise<RoutineDraftRow | null> {
-  const row = await draftTable().get(ROUTINE_DRAFT_ID)
+async function readDraftRow(): Promise<Extract<AiAdvice, { kind: 'routines' }> | null> {
+  const row = await db.aiAdvice.get(ROUTINE_DRAFT_ID)
   if (!row || row.kind !== 'routines' || !isObj(row.data) || !Array.isArray(row.data.routines)) return null
   return row
 }
@@ -257,13 +228,13 @@ export async function saveRoutineProposals(proposalIds: string[], now: number = 
       created.push(await createRoutine({ name: r.name, items }, now + chosen.length - 1 - i))
     }
     const left = row.data.routines.filter((r) => !proposalIds.includes(r.id))
-    if (left.length === 0) await draftTable().delete(ROUTINE_DRAFT_ID)
-    else await draftTable().put({ ...row, data: { ...row.data, routines: left } })
+    if (left.length === 0) await db.aiAdvice.delete(ROUTINE_DRAFT_ID)
+    else await db.aiAdvice.put({ ...row, data: { ...row.data, routines: left } })
     return created
   })
 }
 
 /** 받은 제안을 지운다. */
 export async function discardRoutineDraft(): Promise<void> {
-  await draftTable().delete(ROUTINE_DRAFT_ID)
+  await db.aiAdvice.delete(ROUTINE_DRAFT_ID)
 }
