@@ -1,4 +1,5 @@
 import { db, type SetEntry, type Workout, type WorkoutExercise } from '../db'
+import { formatKg, formatVolume } from './format'
 
 /**
  * 종목별 지난 기록을 꺼내고, 추정 1RM과 개인 기록(PR)을 계산한다. (2단계)
@@ -152,6 +153,14 @@ export const RECORD_LABELS: Record<RecordKind, string> = {
   bestE1rm: '추정 1RM',
   maxReps: '최다 횟수',
   sessionVolume: '최고 볼륨',
+}
+
+/** 기록 값을 화면에 쓰는 글자로. "105kg", "80.5kg"(추정 1RM은 소수 첫째 자리), "12회", "1,530kg" */
+export function formatRecordValue(kind: RecordKind, value: number): string {
+  if (kind === 'maxReps') return `${Math.round(value)}회`
+  if (kind === 'sessionVolume') return `${formatVolume(value)}kg`
+  if (kind === 'bestE1rm') return `${formatKg(Math.round(value * 10) / 10)}kg`
+  return `${formatKg(value)}kg`
 }
 
 export interface RecordEntry {

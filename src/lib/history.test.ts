@@ -4,6 +4,7 @@ import { DEFAULT_INCREMENT_KG, incrementFor, updateExerciseGoal } from './exerci
 import {
   computeRecords,
   estimate1RM,
+  formatRecordValue,
   findNewRecords,
   getAllExerciseSessions,
   getExerciseSessions,
@@ -74,6 +75,16 @@ describe('추정 1RM과 요약', () => {
       workingSetCount: 3,
     })
     expect(summarizeSession([s(null, 12), s(0, 15)])).toMatchObject({ topWeight: null, bestE1rm: null, volume: 0, maxReps: 15 })
+  })
+})
+
+describe('기록 표기', () => {
+  it('종류에 맞춰 단위를 붙인다', () => {
+    expect(formatRecordValue('maxWeight', 62.5)).toBe('62.5kg')
+    expect(formatRecordValue('bestE1rm', estimate1RM(60, 10) + 0.04)).toBe('80kg')
+    expect(formatRecordValue('bestE1rm', estimate1RM(62.5, 8))).toBe('79.2kg')
+    expect(formatRecordValue('maxReps', 12)).toBe('12회')
+    expect(formatRecordValue('sessionVolume', 1530)).toBe('1,530kg')
   })
 })
 
