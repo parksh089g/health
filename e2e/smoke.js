@@ -150,8 +150,11 @@ export async function run(phone) {
 
   // 벤치: 1세트를 웜업으로
   const bench = card('벤치프레스')
-  await bench.getByRole('button', { name: /^1세트\. 누르면 웜업/ }).tap()
-  await visible(bench.getByRole('button', { name: /^웜업 세트/ }), '웜업으로 바뀜')
+  await bench.getByRole('button', { name: '1세트 설정' }).tap()
+  const setSheet = page.getByRole('dialog', { name: /세트 설정$/ })
+  await setSheet.getByRole('switch', { name: '웜업 세트' }).tap()
+  await setSheet.getByRole('button', { name: '닫기' }).tap()
+  await visible(bench.getByRole('button', { name: /^웜업 세트 설정/ }), '웜업으로 바뀜')
   await fill(bench.getByLabel('W세트 무게', { exact: true }), '20')
   await fill(bench.getByLabel('W세트 횟수', { exact: true }), '10')
   await bench.getByRole('button', { name: 'W세트 완료' }).tap()
@@ -161,11 +164,16 @@ export async function run(phone) {
   await bench.getByRole('button', { name: '1세트 완료' }).tap()
   await timer.getByRole('button', { name: '건너뛰기' }).tap()
 
-  // 세트 추가는 앞 세트 값을 따라간다. 세트 삭제는 마지막 세트를 지운다.
+  // 세트 추가는 앞 세트 값을 따라간다. 세트 번호를 눌러 RPE를 적고, 어느 세트든 지울 수 있다.
   await bench.getByRole('button', { name: '세트 추가' }).tap()
   await visible(bench.getByLabel('3세트 무게', { exact: true }), '세트가 하나 늘어남')
-  await bench.getByRole('button', { name: '세트 삭제' }).tap()
-  await hidden(bench.getByLabel('3세트 무게', { exact: true }), '마지막 세트가 지워짐')
+  await bench.getByRole('button', { name: '1세트 설정' }).tap()
+  await setSheet.getByRole('button', { name: '8.5', exact: true }).tap()
+  await visible(bench.getByRole('button', { name: '1세트 설정, RPE 8.5' }), 'RPE 8.5가 세트에 보임')
+  await bench.getByRole('button', { name: '2세트 설정' }).tap()
+  await setSheet.getByRole('button', { name: '세트 삭제' }).tap()
+  await hidden(bench.getByLabel('3세트 무게', { exact: true }), '아직 하지 않은 가운데 세트는 바로 지워짐')
+  await visible(bench.getByLabel('2세트 무게', { exact: true }), '남은 세트 번호가 당겨짐')
 
   // 케틀벨 스윙은 빼기
   await card('케틀벨 스윙').getByRole('button', { name: '빼기' }).tap()
@@ -304,7 +312,8 @@ export async function run(phone) {
   await again.tap()
   await visible(page.getByRole('heading', { name: '운동 중' }), '새 운동 시작')
   await eventually(cardOrder, ['스쿼트', '벤치프레스'], '같은 종목, 같은 순서')
-  await visible(bench.getByRole('button', { name: /^웜업 세트/ }), '웜업 표시도 따라옴')
+  await visible(bench.getByRole('button', { name: /^웜업 세트 설정/ }), '웜업 표시도 따라옴')
+  await hidden(bench.getByRole('button', { name: /RPE/ }), 'RPE는 다음 운동으로 따라오지 않음')
   check((await bench.getByLabel('1세트 무게', { exact: true }).inputValue()) === '40', '벤치 값도 채워짐')
 
   // 진행 중인 운동이 있을 때 다시 하기를 누르면 안내가 뜬다
