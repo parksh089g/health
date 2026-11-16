@@ -85,7 +85,7 @@ export default function WorkoutPage() {
         }
       />
 
-      <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-56' : 'pb-10'}`}>
+      <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-64' : 'pb-10'}`}>
         {ai.enabled && (
           <AiWorkoutPanel
             workoutId={id}

@@ -119,9 +119,12 @@ export async function run(phone) {
   await timer.getByRole('button', { name: '300초' }).tap()
   await restNear(300, '300초를 고름')
   await noOverflow('휴식 타이머')
-  // 타이머가 떠 있는 동안 본문 아래에 두는 여백(pb-56 = 224px)보다 낮아야 마지막 카드를 가리지 않는다.
-  const bar = await boxOf(timer.locator('..'))
-  check(bar.height <= 224, `타이머 높이가 본문 아래 여백 224px 안 (${bar.height}px)`)
+  // 타이머가 떠 있는 동안 본문 아래에 두는 여백(pb-64 = 256px)보다 낮아야 마지막 카드를 가리지 않는다.
+  const barFits = async (label) => {
+    const bar = await boxOf(timer.locator('..'))
+    check(bar.height <= 256, `${label}: 타이머 높이가 본문 아래 여백 256px 안 (${bar.height}px)`)
+  }
+  await barFits('휴식 타이머')
   await touchTargets(phone, '휴식 타이머', timer)
   await shot('06-rest-bar')
   // 고른 길이는 다음 휴식의 기본값이 되므로 90초로 되돌려 둔다.
@@ -136,9 +139,26 @@ export async function run(phone) {
   await page.reload()
   await visible(timer, '15분 가까운 타이머')
   await noOverflow('휴식 타이머(15분)')
+  // 글꼴이 넓거나 화면이 좁으면 버튼이 아랫줄로 내려가고, 남은 시간은 잘리지 않는다.
   const clock = timer.getByText(/^\d+:\d\d$/)
-  const clockFits = await clock.evaluate((el) => el.scrollWidth <= el.clientWidth)
-  check(clockFits, `14분대 시간도 잘리지 않음 (${await clock.textContent()})`)
+  const clockFits = async (label) => {
+    const fits = await clock.evaluate((el) => {
+      const row = el.closest('[role=timer]').getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      return el.scrollWidth <= el.clientWidth && box.left >= row.left && box.right <= row.right
+    })
+    check(fits, `${label}: 14분대 시간도 잘리지 않음 (${await clock.textContent()})`)
+    await barFits(label)
+  }
+  await clockFits('휴식 타이머(15분)')
+  // 폭이 320px인 작은 폰
+  const size = page.viewportSize()
+  await page.setViewportSize({ width: 320, height: size.height })
+  await noOverflow('휴식 타이머(15분, 폭 320px)')
+  await clockFits('휴식 타이머(15분, 폭 320px)')
+  await touchTargets(phone, '휴식 타이머(15분, 폭 320px)', timer)
+  await shot('07-rest-bar-15min-narrow')
+  await page.setViewportSize(size)
   check(await timer.getByRole('button', { name: '+15초' }).isDisabled(), '15분을 넘게는 늘릴 수 없음')
   await shot('07-rest-bar-15min')
   await skip.tap()

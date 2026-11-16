@@ -24,36 +24,41 @@ export function RestTimerBar() {
           rest.finished ? 'border-good bg-good text-white' : 'border-line bg-surface text-ink'
         }`}
       >
-        <div className="flex items-center gap-1.5">
-          {/* "휴식"을 시간 위에 얹어서, 10분이 넘는 시간(14:59)도 버튼 옆에 다 들어가게 한다. */}
-          <div className="min-w-0 flex-1">
+        {/*
+          남은 시간은 줄어들거나 잘리지 않는다. 화면이 좁거나 글꼴이 넓어 버튼과 한 줄에 들어가지 않으면
+          버튼 묶음이 아랫줄로 내려간다(10분이 넘는 14:59도 다 보이게).
+        */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <div className="mr-auto shrink-0 whitespace-nowrap">
             <p className={`text-xs font-medium leading-4 ${rest.finished ? 'text-white/90' : 'text-muted'}`}>휴식</p>
             <p className="text-3xl font-bold tabular-nums leading-none">
               {rest.finished ? '끝!' : formatClock(rest.remainingMs + 999)}
             </p>
           </div>
-          {!rest.finished &&
-            [-REST_STEP_SECONDS, REST_STEP_SECONDS].map((delta) => (
-              <button
-                key={delta}
-                type="button"
-                disabled={!rest.canAdjust(delta)}
-                onClick={() => rest.adjust(delta)}
-                className="h-11 shrink-0 rounded-xl bg-surface-2 px-1.5 text-sm font-semibold tabular-nums text-ink active:opacity-70 disabled:opacity-40"
-              >
-                {delta < 0 ? '−' : '+'}
-                {Math.abs(delta)}초
-              </button>
-            ))}
-          <button
-            type="button"
-            onClick={rest.stop}
-            className={`h-11 shrink-0 rounded-xl text-[15px] font-semibold active:opacity-70 ${
-              rest.finished ? 'bg-white/20 px-4 text-white' : 'bg-accent-soft px-3 text-accent'
-            }`}
-          >
-            {rest.finished ? '닫기' : '건너뛰기'}
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {!rest.finished &&
+              [-REST_STEP_SECONDS, REST_STEP_SECONDS].map((delta) => (
+                <button
+                  key={delta}
+                  type="button"
+                  disabled={!rest.canAdjust(delta)}
+                  onClick={() => rest.adjust(delta)}
+                  className="h-11 shrink-0 rounded-xl bg-surface-2 px-1.5 text-sm font-semibold tabular-nums text-ink active:opacity-70 disabled:opacity-40"
+                >
+                  {delta < 0 ? '−' : '+'}
+                  {Math.abs(delta)}초
+                </button>
+              ))}
+            <button
+              type="button"
+              onClick={rest.stop}
+              className={`h-11 shrink-0 rounded-xl text-[15px] font-semibold active:opacity-70 ${
+                rest.finished ? 'bg-white/20 px-4 text-white' : 'bg-accent-soft px-3 text-accent'
+              }`}
+            >
+              {rest.finished ? '닫기' : '건너뛰기'}
+            </button>
+          </div>
         </div>
 
         {!rest.finished && (
@@ -68,7 +73,7 @@ export function RestTimerBar() {
                   type="button"
                   aria-pressed={rest.durationSeconds === sec}
                   onClick={() => rest.changeDuration(sec)}
-                  className={`h-11 min-w-0 rounded-xl text-sm font-semibold tabular-nums active:opacity-70 ${
+                  className={`h-11 min-w-0 whitespace-nowrap rounded-xl text-sm font-semibold tabular-nums active:opacity-70 max-[340px]:text-xs ${
                     rest.durationSeconds === sec ? 'bg-accent text-on-accent' : 'bg-surface-2 text-muted'
                   }`}
                 >
