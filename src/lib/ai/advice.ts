@@ -1,12 +1,27 @@
-import { db, type AiAdvice, type AiExerciseSuggestion, type AiReview, type AiWorkoutAdvice } from '../../db'
+import {
+  db,
+  type AiAdvice,
+  type AiExerciseSuggestion,
+  type AiReview,
+  type AiWorkoutAdvice,
+  type AiWorkoutFeedback,
+} from '../../db'
 import { getAiApiKey } from '../settings'
 import { AiError, askClaudeJson } from './client'
-import { buildReviewContext, buildWorkoutContext, type WorkoutContextItem } from './context'
+import { buildFeedbackContext, buildReviewContext, buildWorkoutContext, NO_ADVICE_KEY, type WorkoutContextItem } from './context'
 import { addAiUsage, getAiModel } from './models'
 
 /** 오늘 운동 추천을 저장하는 id */
 export const workoutAdviceId = (workoutId: string) => `workout:${workoutId}`
 export const REVIEW_ADVICE_ID = 'review'
+/** 끝난 운동의 피드백을 저장하는 id */
+export const feedbackAdviceId = (workoutId: string) => `feedback:${workoutId}`
+
+/** 모든 요청의 지시문에 함께 붙는, 내 정보와 기록 읽는 법 */
+const SHARED_GUIDE = `기록 읽는 법:
+- "내 정보"는 사용자가 설정에 적어 둔 목표, 운동 경력, 주당 운동 목표, 참고할 점과 최근 체중입니다. 있으면 답에 반영하고, 참고할 점에 적힌 부상이나 피하고 싶은 동작은 꼭 지키세요.
+- 세트 뒤의 (RPE n)은 사용자가 적은 힘든 정도입니다(10이 더 못 하는 한계, 8이면 2회쯤 더 할 수 있었음). 적지 않은 세트가 많으니 있을 때만 참고하세요.
+- "종목 메모"는 사용자가 그 종목에 적어 둔 세팅(시트 높이, 그립 등)입니다.`
 
 // ───────── 운동 추천
 
@@ -19,9 +34,12 @@ export const WORKOUT_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코�
 - 맨몸 종목은 weightKg를 null로 두고 횟수만 정하세요.
 - 지난 기록이 없는 종목은 오늘 세트에 적힌 값을 따르세요. 무게가 비어 있으면 weightKg를 null로 두고, 가벼운 무게로 자세를 익히라고 이유에 적으세요.
 - 오늘 본 세트를 이미 모두 끝낸 종목도 넣고, 이유에는 다음 운동 때의 기준을 적으세요.
+- RPE가 낮았던(여유가 있던) 종목은 올리는 쪽으로, 목표 횟수를 채웠어도 RPE가 10에 가까웠으면 같은 무게를 한 번 더 하는 쪽으로 기울이세요.
+
+${SHARED_GUIDE}
 
 어떻게 쓸지:
-- exercises에는 오늘 할 종목을 받은 key 그대로 하나씩 모두 넣습니다.
+- exercises에는 오늘 할 종목을 받은 key(E1, E2 …) 그대로 하나씩 모두 넣습니다. [${NO_ADVICE_KEY}]으로 표시한 종목은 시간으로 재는 종목이라 넣지 않습니다.
 - reason은 그 값을 고른 까닭을 한국어 해요체 한 문장(40자 안팎)으로 씁니다.
 - summary는 오늘 운동 전체에 대한 조언을 한국어 해요체 한두 문장으로 씁니다.
 - 의학적 진단은 하지 마세요. 통증이 이어진다면 전문가와 상담하라고 짧게만 말하세요.`
@@ -99,22 +117,23 @@ export function parseWorkoutAdvice(raw: unknown, items: WorkoutContextItem[]): A
 }
 
 // 화면을 옮겨 다녀도 같은 요청을 두 번 보내지 않도록, 진행 중인 요청을 id별로 기억한다.
-const inFlight = new Map<string, Promise<AiAdvice>>()
+const inFlight = new Map<string, Promise<unknown>>()
 
-function once(id: string, make: () => Promise<AiAdvice>): Promise<AiAdvice> {
+/** 같은 id의 요청이 진행 중이면 그 요청을 돌려주고, 없으면 새로 시작한다. */
+export function once<T>(id: string, make: () => Promise<T>): Promise<T> {
   const running = inFlight.get(id)
-  if (running) return running
+  if (running) return running as Promise<T>
   const p = make().finally(() => inFlight.delete(id))
   inFlight.set(id, p)
   return p
 }
 
 /** 아직 답을 기다리는 요청(없으면 undefined). 화면에 다시 들어왔을 때 이어서 기다리는 데 쓴다. */
-export function pendingAdviceRequest(id: string): Promise<AiAdvice> | undefined {
+export function pendingAdviceRequest(id: string): Promise<unknown> | undefined {
   return inFlight.get(id)
 }
 
-async function requireKey(): Promise<string> {
+export async function requireKey(): Promise<string> {
   const key = await getAiApiKey()
   if (!key) throw new AiError('설정에서 Anthropic API 키를 먼저 넣어 주세요.', 'auth')
   return key
@@ -129,7 +148,7 @@ async function fetchWorkoutAdvice(workoutId: string, now: number): Promise<AiAdv
   const apiKey = await requireKey()
   const model = await getAiModel()
   const ctx = await buildWorkoutContext(workoutId, now)
-  if (ctx.items.length === 0) throw new AiError('종목을 먼저 추가해 주세요.', 'request')
+  if (ctx.items.length === 0) throw new AiError('추천받을 종목을 먼저 추가해 주세요.', 'request')
 
   const res = await askClaudeJson({
     apiKey,
@@ -172,7 +191,9 @@ export interface AdviceMeta {
 
 export const REVIEW_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코치입니다. 사용자의 최근 몇 주 운동 기록을 보고 짧은 분석을 씁니다. 사용자는 폰의 통계 화면에서 이 글을 읽습니다.
 
-볼 것: 운동 빈도와 꾸준함, 부위별 세트 균형(특히 크게 모자라거나 몰린 부위), 종목별 성장과 정체, 루틴 구성, 메모에 적힌 컨디션.
+볼 것: 운동 빈도와 꾸준함(주당 운동 목표가 있으면 그에 견주어), 부위별 세트 균형(특히 크게 모자라거나 몰린 부위), 종목별 성장과 정체, 루틴 구성, 메모에 적힌 컨디션, 목표에 비춘 체중 변화.
+
+${SHARED_GUIDE}
 
 쓰는 법:
 - headline은 지금 상태를 한 문장으로 씁니다.
@@ -234,5 +255,82 @@ async function fetchReview(now: number): Promise<AiAdvice> {
 export async function getReview(): Promise<(AiReview & { meta: AdviceMeta }) | null> {
   const row = await db.aiAdvice.get(REVIEW_ADVICE_ID)
   if (!row || row.kind !== 'review') return null
+  return { ...row.data, meta: { createdAt: row.createdAt, model: row.model, costUsd: row.costUsd } }
+}
+
+// ───────── 운동 뒤 피드백
+
+export const FEEDBACK_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코치입니다. 사용자가 끝낸 운동 한 번의 기록을 같은 종목의 지난 기록과 비교해 짧은 피드백을 씁니다. 사용자는 폰의 기록 화면에서 이 글을 읽습니다.
+
+볼 것: 같은 종목의 지난 기록과 견준 무게, 횟수, 볼륨, 추정 1RM의 변화, 목표 횟수를 채웠는지, 세트가 뒤로 갈수록 횟수가 얼마나 떨어졌는지, 이번에 세운 새 기록, 운동 사이의 간격, 메모에 적힌 컨디션.
+
+${SHARED_GUIDE}
+
+쓰는 법:
+- headline은 이 운동을 한 문장으로 정리합니다.
+- points에는 2~4개를 씁니다. 잘한 점과 다음 운동에서 해 볼 것을 섞고, 다음에 해 볼 것은 종목과 무게나 횟수를 들어 바로 따라 할 수 있게 씁니다.
+- 기록에 근거가 있는 말만 하고, 숫자를 인용할 때는 기록에 있는 값을 그대로 씁니다. 지난 기록이 없는 종목은 비교하지 말고 기준이 생겼다고만 말합니다.
+- 모두 한국어 해요체로, 항목 하나는 한두 문장으로 짧게 씁니다.
+- 의학적 진단은 하지 마세요. 통증이 이어진다면 전문가와 상담하라고 짧게만 말하세요.`
+
+export const FEEDBACK_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    headline: { type: 'string' },
+    points: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['headline', 'points'],
+  additionalProperties: false,
+}
+
+/** 피드백 답을 확인한다. 빈 항목은 빼고 4개까지만 둔다. 총평이나 항목이 없으면 AiError. */
+export function parseFeedback(raw: unknown): AiWorkoutFeedback {
+  if (!isObj(raw) || typeof raw.headline !== 'string' || !Array.isArray(raw.points)) {
+    throw new AiError('AI 답의 모양이 달라 읽지 못했습니다. 다시 시도해 주세요.', 'invalid')
+  }
+  const headline = text(raw.headline, 300)
+  const points = raw.points
+    .map((x) => text(x, 300))
+    .filter((x) => x !== '')
+    .slice(0, 4)
+  if (headline === '' || points.length === 0) {
+    throw new AiError('AI 답에서 쓸 수 있는 피드백을 찾지 못했습니다. 다시 시도해 주세요.', 'invalid')
+  }
+  return { headline, points }
+}
+
+/** 끝난 운동의 AI 피드백을 받아 저장한다. 같은 운동의 요청이 진행 중이면 그 요청을 같이 기다린다. */
+export function requestWorkoutFeedback(workoutId: string, now: number = Date.now()): Promise<AiAdvice> {
+  return once(feedbackAdviceId(workoutId), () => fetchWorkoutFeedback(workoutId, now))
+}
+
+async function fetchWorkoutFeedback(workoutId: string, now: number): Promise<AiAdvice> {
+  const apiKey = await requireKey()
+  const model = await getAiModel()
+  const prompt = await buildFeedbackContext(workoutId, now)
+  if (prompt === null) throw new AiError('끝낸 운동의 기록이 있어야 피드백을 받을 수 있습니다.', 'request')
+
+  const res = await askClaudeJson({ apiKey, model, system: FEEDBACK_SYSTEM, prompt, schema: FEEDBACK_SCHEMA })
+  // 답을 읽지 못하거나 그사이 운동을 지워도 요금은 이미 들었으니 센다.
+  await addAiUsage(res.costUsd)
+  const advice: AiAdvice = {
+    id: feedbackAdviceId(workoutId),
+    kind: 'feedback',
+    workoutId,
+    createdAt: Date.now(),
+    model: res.servedModel,
+    costUsd: res.costUsd,
+    data: parseFeedback(res.value),
+  }
+  // 기다리는 동안 운동을 지웠으면 저장하지 않는다(지운 운동에 매인 답이 남지 않게).
+  await db.transaction('rw', db.workouts, db.aiAdvice, async () => {
+    if (await db.workouts.get(workoutId)) await db.aiAdvice.put(advice)
+  })
+  return advice
+}
+
+export async function getWorkoutFeedback(workoutId: string): Promise<(AiWorkoutFeedback & { meta: AdviceMeta }) | null> {
+  const row = await db.aiAdvice.get(feedbackAdviceId(workoutId))
+  if (!row || row.kind !== 'feedback') return null
   return { ...row.data, meta: { createdAt: row.createdAt, model: row.model, costUsd: row.costUsd } }
 }
