@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AiReviewCard } from '../components/AiReviewCard'
+import { BodyWeightCard } from '../components/BodyWeightCard'
 import { ChartReadout } from '../components/charts/ChartReadout'
 import { ChartTable } from '../components/charts/ChartTable'
 import { ColumnChart } from '../components/charts/ColumnChart'
@@ -36,7 +37,7 @@ import { useNow } from '../lib/useNow'
 const WEEKS = 12
 const BODY_PART_DAYS = 28
 
-/** 통계 탭. 이번 달과 이번 주 요약, 주별 운동 횟수와 볼륨, 부위별 세트, 운동 달력, 종목 목록. */
+/** 통계 탭. 이번 달과 이번 주 요약, 체중, 주별 운동 횟수와 볼륨, 부위별 세트, 운동 달력, 종목 목록. */
 export default function Stats() {
   const now = useNow(60_000)
   const data = useLiveQuery(loadStatsData, [])
@@ -46,13 +47,17 @@ export default function Stats() {
       <h1 className="text-2xl font-bold text-ink">통계</h1>
       {data !== undefined &&
         (data.workouts.length === 0 ? (
-          <p className="mt-5 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
-            아직 끝낸 운동이 없습니다.
-            <br />
-            운동을 마치면 주별 기록, 부위별 세트, 운동 달력과
-            <br />
-            종목별 성장 그래프가 여기에 나타납니다.
-          </p>
+          <>
+            <p className="mt-5 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
+              아직 끝낸 운동이 없습니다.
+              <br />
+              운동을 마치면 주별 기록, 부위별 세트, 운동 달력과
+              <br />
+              종목별 성장 그래프가 여기에 나타납니다.
+            </p>
+            {/* 체중은 운동 기록이 없어도 적을 수 있다. */}
+            <BodyWeightCard now={now} />
+          </>
         ) : (
           <StatsBody data={data} now={now} />
         ))}
@@ -68,6 +73,7 @@ function StatsBody({ data, now }: { data: StatsData; now: number }) {
     <>
       <Overview data={data} weeks={weeks} thisMonth={thisMonth} />
       <AiReviewCard />
+      <BodyWeightCard now={now} />
       <WeeklyCard weeks={weeks} />
       <BodyPartCard data={data} now={now} />
       <CalendarCard data={data} now={now} />
