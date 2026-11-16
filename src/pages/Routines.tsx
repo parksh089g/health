@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
+import { AiRoutineBuilder } from '../components/AiRoutineBuilder'
 import { DumbbellIcon, PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { RoutineStartDialog } from '../components/RoutineStartDialog'
@@ -37,6 +38,8 @@ export default function Routines() {
             </Link>
           </>
         )}
+        {/* AI 추천을 켜고 키를 넣었을 때만 보인다. 받은 제안은 고른 것만 위 목록에 루틴으로 저장된다. */}
+        {views !== undefined && <AiRoutineBuilder />}
       </main>
 
       <RoutineStartDialog notice={notice} onClose={closeNotice} />
@@ -48,7 +51,7 @@ function RoutineCard({ view, busy, onStart }: { view: RoutineView; busy: boolean
   const { routine, names, missingCount } = view
   const playable = names.length > missingCount
   return (
-    <li className="flex items-center rounded-2xl border border-line bg-surface">
+    <li className="flex min-w-0 items-center rounded-2xl border border-line bg-surface">
       <Link to={`/routines/${routine.id}`} className="min-w-0 flex-1 rounded-l-2xl py-3 pl-4 pr-2 active:bg-surface-2">
         <p className="truncate text-lg font-bold text-ink">{routine.name}</p>
         <p className="mt-0.5 truncate text-sm text-muted">{summarizeNames(names)}</p>

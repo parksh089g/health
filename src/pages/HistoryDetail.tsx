@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { AiFeedbackCard } from '../components/AiFeedbackCard'
 import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PageHeader } from '../components/PageHeader'
@@ -56,6 +57,7 @@ export default function HistoryDetail() {
         </p>
 
         <MemoField key={workout.id} workoutId={workout.id} initial={workout.memo} />
+        <AiFeedbackCard key={`ai-${workout.id}`} workoutId={workout.id} />
 
         <div className="mt-3 grid gap-3">
           {items.map((item, index) => (

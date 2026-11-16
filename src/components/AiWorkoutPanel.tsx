@@ -1,13 +1,10 @@
 import { Link } from 'react-router-dom'
 import type { AiWorkoutAdvice } from '../db'
 import { requestWorkoutAdvice, workoutAdviceId, type AdviceMeta } from '../lib/ai/advice'
-import { aiModelInfo, estimateCostUsd, formatUsd, type AiModelId } from '../lib/ai/models'
+import { aiModelInfo, formatUsd, typicalCostText, type AiModelId } from '../lib/ai/models'
 import { useAdviceRequest } from '../lib/ai/useAdviceRequest'
 import { formatTime } from '../lib/format'
 import { SparkleIcon } from './icons'
-
-/** 운동 추천 한 번에 드는 토큰 수의 어림값(종목 4~6개, 기록 6번씩) */
-const TYPICAL_USAGE = { input_tokens: 4000, output_tokens: 2000 }
 
 interface AiWorkoutPanelProps {
   workoutId: string
@@ -34,7 +31,7 @@ export function AiWorkoutPanel({ workoutId, model, hasKey, hasItems, advice }: A
   }
 
   const modelName = aiModelInfo(model)?.label ?? model
-  const cost = formatUsd(estimateCostUsd(TYPICAL_USAGE, model, model))
+  const cost = typicalCostText('workout', model)
 
   return (
     <section aria-label="AI 코치" aria-busy={busy} className="mb-3 rounded-2xl border border-line bg-surface p-3">
