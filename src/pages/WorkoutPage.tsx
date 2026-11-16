@@ -109,7 +109,7 @@ export default function WorkoutPage() {
               key={item.we.id}
               item={item}
               mode="active"
-              onSetDone={() => rest.start()}
+              onSetDone={() => rest.start(item.exercise?.restSeconds)}
               recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
               records={records}
               aiSuggestion={
