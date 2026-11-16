@@ -107,7 +107,7 @@ export interface SettingRow {
 /** AI(Claude)가 오늘 운동의 한 종목에 제안한 값 */
 export interface AiExerciseSuggestion {
   workoutExerciseId: string
-  /** 추천 무게(kg). 맨몸 종목이면 null */
+  /** 추천 무게(kg). 맨몸 종목이면 null(추가 무게를 쓰는 맨몸 종목이면 추가 무게) */
   weightKg: number | null
   reps: number
   reason: string
