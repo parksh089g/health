@@ -1,10 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getReview, requestReview } from '../lib/ai/advice'
-import { AiError } from '../lib/ai/client'
+import { getReview, requestReview, REVIEW_ADVICE_ID } from '../lib/ai/advice'
 import { REVIEW_WEEKS } from '../lib/ai/context'
 import { aiModelInfo, formatUsd } from '../lib/ai/models'
+import { useAdviceRequest } from '../lib/ai/useAdviceRequest'
 import { formatFullDate } from '../lib/format'
 import { getAiApiKey, getAiEnabled } from '../lib/settings'
 import { SparkleIcon } from './icons'
@@ -15,23 +14,10 @@ export function AiReviewCard() {
     const [enabled, key, review] = await Promise.all([getAiEnabled(), getAiApiKey(), getReview().catch(() => null)])
     return { enabled, hasKey: key !== null, review }
   }, [])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<AiError | null>(null)
+  const { busy, error, run } = useAdviceRequest(REVIEW_ADVICE_ID, () => requestReview())
 
   if (!state?.enabled) return null
   const { review, hasKey } = state
-
-  const run = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      await requestReview()
-    } catch (e) {
-      setError(e instanceof AiError ? e : new AiError('AI 요청 중에 문제가 생겼습니다. 다시 시도해 주세요.', 'request'))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <section

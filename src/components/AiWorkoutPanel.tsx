@@ -1,9 +1,8 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AiWorkoutAdvice } from '../db'
-import { requestWorkoutAdvice, type AdviceMeta } from '../lib/ai/advice'
-import { AiError } from '../lib/ai/client'
+import { requestWorkoutAdvice, workoutAdviceId, type AdviceMeta } from '../lib/ai/advice'
 import { aiModelInfo, estimateCostUsd, formatUsd, type AiModelId } from '../lib/ai/models'
+import { useAdviceRequest } from '../lib/ai/useAdviceRequest'
 import { formatTime } from '../lib/format'
 import { SparkleIcon } from './icons'
 
@@ -20,8 +19,7 @@ interface AiWorkoutPanelProps {
 
 /** 운동 화면 맨 위의 AI 추천 칸. 누를 때만 Claude에게 묻는다(자동으로 요청하지 않는다). */
 export function AiWorkoutPanel({ workoutId, model, hasKey, hasItems, advice }: AiWorkoutPanelProps) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<AiError | null>(null)
+  const { busy, error, run } = useAdviceRequest(workoutAdviceId(workoutId), () => requestWorkoutAdvice(workoutId))
 
   if (!hasKey) {
     return (
@@ -33,18 +31,6 @@ export function AiWorkoutPanel({ workoutId, model, hasKey, hasItems, advice }: A
         에서 Anthropic API 키를 넣어 주세요.
       </p>
     )
-  }
-
-  const run = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      await requestWorkoutAdvice(workoutId)
-    } catch (e) {
-      setError(e instanceof AiError ? e : new AiError('AI 요청 중에 문제가 생겼습니다. 다시 시도해 주세요.', 'request'))
-    } finally {
-      setBusy(false)
-    }
   }
 
   const modelName = aiModelInfo(model)?.label ?? model

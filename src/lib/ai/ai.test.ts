@@ -16,8 +16,8 @@ import {
   REVIEW_SCHEMA,
   workoutSchema,
 } from './advice'
-import { AiError, askClaudeJson, toAiError } from './client'
-import { buildReviewContext, buildWorkoutContext, type WorkoutContextItem } from './context'
+import { AiError, answerText, askClaudeJson, costOfUsage, toAiError } from './client'
+import { applyFromWeight, buildReviewContext, buildWorkoutContext, type WorkoutContextItem } from './context'
 import { addAiUsage, estimateCostUsd, formatUsd, getAiUsage } from './models'
 
 vi.mock('./client', async (importOriginal) => {
@@ -127,6 +127,21 @@ describe('운동 추천 답 읽기', () => {
     ])
   })
 
+  it('무게로 하는 종목에 무게 없이 답하면 버린다(기준 무게가 있을 때)', () => {
+    const advice = parseWorkoutAdvice(
+      {
+        summary: '',
+        exercises: [
+          { key: 'E1', weightKg: null, reps: 8, reason: '무게가 없다' },
+          { key: 'E3', weightKg: 0, reps: 5, reason: '0kg도 없는 것' },
+          { key: 'E2', weightKg: null, reps: 12, reason: '맨몸은 괜찮다' },
+        ],
+      },
+      items,
+    )
+    expect(advice.exercises.map((e) => e.workoutExerciseId)).toEqual(['we-pull'])
+  })
+
   it('쓸 수 있는 답이 없으면 알린다', () => {
     expect(() => parseWorkoutAdvice({ summary: '', exercises: [] }, items)).toThrow(AiError)
     expect(() => parseWorkoutAdvice('nope', items)).toThrow('AI 답의 모양이 달라')
@@ -184,6 +199,72 @@ describe('AI 추천 받기와 적용', () => {
     expect(await getWorkoutAdvice(today.id)).toBeNull()
   })
 
+  it('다시 받은 추천을 적용해도 피라미드의 가벼운 세트는 그대로 둔다', async () => {
+    await setSetting(SETTING_KEYS.aiApiKey, 'sk-ant-test')
+    await record(NOW - 3 * DAY, { [BENCH]: [[50, 10], [55, 8], [60, 6]] })
+    const today = await record(NOW, { [BENCH]: [[50, 10, { done: false }], [55, 8, { done: false }], [60, 6, { done: false }]] }, { finish: false })
+    const answer = (weightKg: number, reps: number) => ({
+      value: { summary: '', exercises: [{ key: 'E1', weightKg, reps, reason: '' }] },
+      servedModel: 'claude-opus-5-5',
+      costUsd: 0.05,
+      inputTokens: 1,
+      outputTokens: 1,
+    })
+    const weights = async () =>
+      (await db.sets.where('workoutExerciseId').equals(today.weIds[BENCH]).sortBy('order')).map((s) => [s.weightKg, s.reps])
+
+    askMock.mockResolvedValueOnce(answer(62.5, 6))
+    await requestWorkoutAdvice(today.id, NOW)
+    await applyRecommendation(today.weIds[BENCH], (await getWorkoutAdvice(today.id))!.exercises[0])
+    expect(await weights()).toEqual([[50, 10], [55, 8], [62.5, 6]])
+
+    // 다시 받으면 기준 무게는 지난번 최고(60)가 아니라 지금 남은 세트의 최고(62.5)다.
+    askMock.mockResolvedValueOnce(answer(65, 5))
+    await requestWorkoutAdvice(today.id, NOW)
+    const second = (await getWorkoutAdvice(today.id))!.exercises[0]
+    expect(second.fromWeightKg).toBe(62.5)
+    await applyRecommendation(today.weIds[BENCH], second)
+    expect(await weights()).toEqual([[50, 10], [55, 8], [65, 5]])
+  })
+
+  it('applyFromWeight: 규칙의 기준 무게가 남아 있으면 그대로, 없으면 남은 본 세트의 최고 무게', () => {
+    const set = (weightKg: number | null, o: { done?: boolean; warmup?: boolean } = {}) => ({
+      weightKg,
+      isDone: o.done ?? false,
+      isWarmup: o.warmup ?? false,
+    })
+    expect(applyFromWeight([set(60), set(62.5), set(70)], 70, 70)).toBe(70)
+    expect(applyFromWeight([set(60), set(72.5)], 70, 72.5)).toBe(72.5)
+    expect(applyFromWeight([set(80, { done: true }), set(60), set(20, { warmup: true })], 80, 80)).toBe(60)
+    expect(applyFromWeight([set(null), set(null)], 70, 0)).toBe(70)
+    expect(applyFromWeight([set(80, { done: true })], null, 80)).toBe(80)
+    expect(applyFromWeight([], null, 0)).toBeNull()
+  })
+
+  it('같은 운동의 요청이 진행 중이면 한 번만 보내고, 그사이 운동을 지우면 저장하지 않는다', async () => {
+    await setSetting(SETTING_KEYS.aiApiKey, 'sk-ant-test')
+    const today = await record(NOW, { [BENCH]: [[60, 8, { done: false }]] }, { finish: false })
+    let resolve!: (v: Awaited<ReturnType<typeof askClaudeJson>>) => void
+    askMock.mockReturnValueOnce(new Promise((r) => (resolve = r)))
+
+    const first = requestWorkoutAdvice(today.id, NOW)
+    const second = requestWorkoutAdvice(today.id, NOW)
+    expect(second).toBe(first)
+    await vi.waitFor(() => expect(askMock).toHaveBeenCalledTimes(1))
+
+    await deleteWorkout(today.id)
+    resolve({
+      value: { summary: '', exercises: [{ key: 'E1', weightKg: 62.5, reps: 8, reason: '' }] },
+      servedModel: 'claude-opus-5-5',
+      costUsd: 0.05,
+      inputTokens: 1,
+      outputTokens: 1,
+    })
+    await first
+    expect(await db.aiAdvice.count()).toBe(0)
+    expect((await getAiUsage()).calls).toBe(1)
+  })
+
   it('키가 없으면 요청하지 않는다', async () => {
     const today = await record(NOW, { [BENCH]: [[60, 8, { done: false }]] }, { finish: false })
     await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow('API 키를 먼저')
@@ -230,6 +311,19 @@ describe('요금', () => {
     expect(formatUsd(0.004)).toBe('$0.01 미만')
   })
 
+  it('다른 모델이 이어 답했으면 시도마다 그 모델의 요금으로 센다', () => {
+    const usage = {
+      input_tokens: 4000,
+      output_tokens: 2000,
+      iterations: [
+        { type: 'message', input_tokens: 4000, output_tokens: 500, model: 'claude-opus-5-5' },
+        { type: 'fallback_message', input_tokens: 4000, output_tokens: 2000, model: 'claude-sonnet-5-5' },
+      ],
+    }
+    expect(costOfUsage(usage, 'claude-sonnet-5-5', 'claude-opus-5-5')).toBeCloseTo(0.026 + 0.028, 6)
+    expect(costOfUsage({ input_tokens: 4000, output_tokens: 2000 }, 'claude-opus-5-5', 'claude-opus-5-5')).toBeCloseTo(0.056, 6)
+  })
+
   it('달이 바뀌면 사용량을 새로 센다', async () => {
     const oct = new Date(2026, 9, 31, 12).getTime()
     await addAiUsage(0.1, oct)
@@ -265,6 +359,17 @@ describe('API 키와 백업', () => {
     await importBackup(backup)
     expect(await getAiApiKey()).toBe('sk-ant-mine')
     expect(await db.aiAdvice.count()).toBe(0)
+  })
+})
+
+describe('답 글 꺼내기', () => {
+  it('거절로 다른 모델이 이어 답했으면 fallback 블록 뒤의 글만 쓴다', () => {
+    expect(answerText([{ type: 'text', text: '{"a":1}' }])).toBe('{"a":1}')
+    expect(answerText([{ type: 'thinking' }, { type: 'text', text: '{"a":' }, { type: 'text', text: '1}' }])).toBe('{"a":1}')
+    expect(
+      answerText([{ type: 'text', text: '{"summary":"쓰다 만' }, { type: 'fallback' }, { type: 'text', text: '{"b":2}' }]),
+    ).toBe('{"b":2}')
+    expect(answerText([])).toBe('')
   })
 })
 

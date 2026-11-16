@@ -86,6 +86,24 @@ export interface WorkoutContext {
 }
 
 /** 진행 중인 운동에 대한 추천 요청 글. 종목이 없으면 items가 비어 있다. */
+/**
+ * AI 추천을 적용할 때 바꿀 세트의 무게(지금 세트 기준). 규칙의 기준 무게(지난번 최고 무게)가 아직 남은 본 세트에 있으면
+ * 그 무게를, 없으면(이미 한 번 적용했거나 직접 바꾼 경우) 남은 본 세트 중 가장 무거운 무게를 쓴다.
+ * 그래야 다시 받은 추천을 적용해도 피라미드의 가벼운 세트까지 바뀌지 않는다.
+ */
+export function applyFromWeight(
+  sets: Pick<SetEntry, 'weightKg' | 'isWarmup' | 'isDone'>[],
+  ruleFrom: number | null,
+  todayTop: number,
+): number | null {
+  const pending = sets
+    .filter((s) => !s.isWarmup && !s.isDone && s.weightKg !== null && s.weightKg > 0)
+    .map((s) => s.weightKg as number)
+  if (ruleFrom !== null && pending.some((w) => Math.abs(w - ruleFrom) < 1e-6)) return ruleFrom
+  if (pending.length > 0) return Math.max(...pending)
+  return ruleFrom ?? (todayTop > 0 ? todayTop : null)
+}
+
 export async function buildWorkoutContext(workoutId: string, now: number = Date.now()): Promise<WorkoutContext> {
   const workout = await db.workouts.get(workoutId)
   if (!workout) return { prompt: '', items: [] }
@@ -138,7 +156,7 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
     items.push({
       key,
       workoutExerciseId: we.id,
-      fromWeightKg: rule?.fromWeightKg ?? (todayTop > 0 ? todayTop : null),
+      fromWeightKg: applyFromWeight(sets, rule?.fromWeightKg ?? null, todayTop),
       bodyweight: exercise?.equipment === 'bodyweight',
     })
   }

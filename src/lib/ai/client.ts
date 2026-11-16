@@ -26,9 +26,18 @@ type Sdk = typeof AnthropicClient
 
 let sdkPromise: Promise<Sdk> | null = null
 function loadSdk(): Promise<Sdk> {
-  sdkPromise ??= import('@anthropic-ai/sdk').then((m) => m.default)
+  // 내려받기가 한 번 실패해도(인터넷이 끊기거나 새 버전으로 바뀌는 중) 다음 요청에서 다시 받는다.
+  sdkPromise ??= import('@anthropic-ai/sdk')
+    .then((m) => m.default)
+    .catch((e: unknown) => {
+      sdkPromise = null
+      throw new AiError('AI 기능을 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.', 'network', String(e))
+    })
   return sdkPromise
 }
+
+/** 답이 끝까지 오지 않을 때 기다리는 최대 시간. 스트리밍이라 SDK의 timeout은 첫 응답까지만 본다. */
+const ANSWER_TIMEOUT_MS = 4 * 60_000
 
 async function createClient(apiKey: string): Promise<{ Anthropic: Sdk; client: AnthropicClient }> {
   const Anthropic = await loadSdk()
@@ -79,7 +88,7 @@ export function toAiError(e: unknown, Anthropic: Sdk): AiError {
   if (e instanceof Anthropic.InternalServerError) {
     return new AiError('Anthropic 서버가 바쁩니다. 잠시 뒤에 다시 시도해 주세요.', 'server', detail)
   }
-  if (e instanceof Anthropic.APIConnectionTimeoutError) {
+  if (e instanceof Anthropic.APIConnectionTimeoutError || e instanceof Anthropic.APIUserAbortError) {
     return new AiError('답이 너무 오래 걸려 멈췄습니다. 다시 시도해 주세요.', 'network', detail)
   }
   if (e instanceof Anthropic.APIConnectionError) {
@@ -109,25 +118,66 @@ export interface JsonResponse {
   outputTokens: number
 }
 
+type ContentBlock = { type: string; text?: string }
+
+/**
+ * 답의 JSON 글. 거절로 다른 모델이 이어 답했으면 content에 fallback 블록이 끼고, 스트리밍에서는 그 앞에
+ * 거절한 모델이 쓰다 만 글이 남는다. 그래서 마지막 fallback 블록 뒤의 text만 이어 붙인다.
+ */
+export function answerText(content: ContentBlock[]): string {
+  let start = 0
+  content.forEach((b, i) => {
+    if (b.type === 'fallback') start = i + 1
+  })
+  return content
+    .slice(start)
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text ?? '')
+    .join('')
+}
+
+interface UsageLike {
+  input_tokens: number
+  output_tokens: number
+  iterations?: Array<{ type: string; input_tokens: number; output_tokens: number; model?: string | null }> | null
+}
+
+/** 요금 어림값. 다른 모델이 이어 답했으면 시도마다 그 모델의 요금으로 센다(맨 위 usage는 마지막 시도만 담는다). */
+export function costOfUsage(usage: UsageLike, servedModel: string, requestedModel: AiModelId): number {
+  const attempts = (usage.iterations ?? []).filter((it) => it.type === 'message' || it.type === 'fallback_message')
+  if (attempts.length === 0) return estimateCostUsd(usage, servedModel, requestedModel)
+  return attempts.reduce((sum, it) => sum + estimateCostUsd(it, it.model ?? servedModel, requestedModel), 0)
+}
+
 /** Claude에게 묻고 JSON 답을 받는다. 실패하면 AiError를 던진다. */
 export async function askClaudeJson(req: JsonRequest): Promise<JsonResponse> {
   assertOnline()
   const { Anthropic, client } = await createClient(req.apiKey)
   const info = aiModelInfo(req.model)
 
+  // 생각하는 시간이 길 수 있어 스트리밍으로 받고 다 모인 답만 쓴다(중간에 끊겨도 재시도로 두 번 청구되지 않게).
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), ANSWER_TIMEOUT_MS)
   let response: AnthropicClient.Beta.BetaMessage
   try {
-    response = await client.beta.messages.create({
-      model: req.model,
-      max_tokens: 16000,
-      // 안전 검사로 거절되면 서버가 알맞은 다른 모델로 이어서 답하게 한다(지원하는 모델만).
-      ...(info?.fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-      output_config: { effort: 'medium', format: { type: 'json_schema', schema: req.schema } },
-      system: req.system,
-      messages: [{ role: 'user', content: req.prompt }],
-    })
+    response = await client.beta.messages
+      .stream(
+        {
+          model: req.model,
+          max_tokens: 16000,
+          // 안전 검사로 거절되면 서버가 알맞은 다른 모델로 이어서 답하게 한다(지원하는 모델만).
+          ...(info?.fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+          output_config: { effort: 'medium', format: { type: 'json_schema', schema: req.schema } },
+          system: req.system,
+          messages: [{ role: 'user', content: req.prompt }],
+        },
+        { signal: abort.signal },
+      )
+      .finalMessage()
   } catch (e) {
     throw toAiError(e, Anthropic)
+  } finally {
+    clearTimeout(timer)
   }
 
   if (response.stop_reason === 'refusal') {
@@ -136,21 +186,19 @@ export async function askClaudeJson(req: JsonRequest): Promise<JsonResponse> {
   if (response.stop_reason === 'max_tokens') {
     throw new AiError('AI 답이 너무 길어 잘렸습니다. 다시 시도해 주세요.', 'truncated')
   }
-  const text = response.content.find((b): b is AnthropicClient.Beta.BetaTextBlock => b.type === 'text')?.text
   let value: unknown
   try {
-    value = JSON.parse(text ?? '')
+    value = JSON.parse(answerText(response.content))
   } catch {
     throw new AiError('AI 답을 읽지 못했습니다. 다시 시도해 주세요.', 'invalid')
   }
 
-  const usage = { input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens }
   return {
     value,
     servedModel: response.model,
-    costUsd: estimateCostUsd(usage, response.model, req.model),
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
+    costUsd: costOfUsage(response.usage, response.model, req.model),
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
   }
 }
 

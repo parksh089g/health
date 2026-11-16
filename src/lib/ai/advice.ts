@@ -81,6 +81,8 @@ export function parseWorkoutAdvice(raw: unknown, items: WorkoutContextItem[]): A
     const weight = cleanWeight(e.weightKg)
     const reps = typeof e.reps === 'number' ? Math.round(e.reps) : NaN
     if (weight === undefined || !(reps >= 1 && reps <= 100)) continue
+    // 무게로 하는 종목인데 무게 없이 답하면 횟수만 모든 세트에 들어가 버리므로 버린다(기준 무게가 있을 때).
+    if (!item.bodyweight && weight === null && item.fromWeightKg !== null) continue
     seen.add(e.key)
     exercises.push({
       workoutExerciseId: item.workoutExerciseId,
@@ -96,14 +98,34 @@ export function parseWorkoutAdvice(raw: unknown, items: WorkoutContextItem[]): A
   return { summary: text(raw.summary, 400), exercises }
 }
 
+// 화면을 옮겨 다녀도 같은 요청을 두 번 보내지 않도록, 진행 중인 요청을 id별로 기억한다.
+const inFlight = new Map<string, Promise<AiAdvice>>()
+
+function once(id: string, make: () => Promise<AiAdvice>): Promise<AiAdvice> {
+  const running = inFlight.get(id)
+  if (running) return running
+  const p = make().finally(() => inFlight.delete(id))
+  inFlight.set(id, p)
+  return p
+}
+
+/** 아직 답을 기다리는 요청(없으면 undefined). 화면에 다시 들어왔을 때 이어서 기다리는 데 쓴다. */
+export function pendingAdviceRequest(id: string): Promise<AiAdvice> | undefined {
+  return inFlight.get(id)
+}
+
 async function requireKey(): Promise<string> {
   const key = await getAiApiKey()
   if (!key) throw new AiError('설정에서 Anthropic API 키를 먼저 넣어 주세요.', 'auth')
   return key
 }
 
-/** 진행 중인 운동에 대한 AI 추천을 받아 저장한다. */
-export async function requestWorkoutAdvice(workoutId: string, now: number = Date.now()): Promise<AiAdvice> {
+/** 진행 중인 운동에 대한 AI 추천을 받아 저장한다. 같은 운동의 요청이 진행 중이면 그 요청을 같이 기다린다. */
+export function requestWorkoutAdvice(workoutId: string, now: number = Date.now()): Promise<AiAdvice> {
+  return once(workoutAdviceId(workoutId), () => fetchWorkoutAdvice(workoutId, now))
+}
+
+async function fetchWorkoutAdvice(workoutId: string, now: number): Promise<AiAdvice> {
   const apiKey = await requireKey()
   const model = await getAiModel()
   const ctx = await buildWorkoutContext(workoutId, now)
@@ -126,7 +148,10 @@ export async function requestWorkoutAdvice(workoutId: string, now: number = Date
     costUsd: res.costUsd,
     data,
   }
-  await db.aiAdvice.put(advice)
+  // 기다리는 동안 운동을 지웠으면 저장하지 않는다(지운 운동에 매인 답이 남지 않게). 요금은 이미 들었으니 센다.
+  await db.transaction('rw', db.workouts, db.aiAdvice, async () => {
+    if (await db.workouts.get(workoutId)) await db.aiAdvice.put(advice)
+  })
   await addAiUsage(res.costUsd)
   return advice
 }
@@ -180,8 +205,12 @@ export function parseReview(raw: unknown): AiReview {
   return { headline: text(raw.headline, 300), good: list(raw.good), watch: list(raw.watch), suggestions: list(raw.suggestions) }
 }
 
-/** 최근 기록 분석을 받아 저장한다(가장 최근 것 하나만 남는다). */
-export async function requestReview(now: number = Date.now()): Promise<AiAdvice> {
+/** 최근 기록 분석을 받아 저장한다(가장 최근 것 하나만 남는다). 진행 중이면 그 요청을 같이 기다린다. */
+export function requestReview(now: number = Date.now()): Promise<AiAdvice> {
+  return once(REVIEW_ADVICE_ID, () => fetchReview(now))
+}
+
+async function fetchReview(now: number): Promise<AiAdvice> {
   const apiKey = await requireKey()
   const model = await getAiModel()
   const prompt = await buildReviewContext(now)
