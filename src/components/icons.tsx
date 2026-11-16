@@ -106,3 +106,13 @@ export function DumbbellIcon(props: IconProps) {
     </Svg>
   )
 }
+
+/** AI 추천 표시 */
+export function SparkleIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />
+      <path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z" />
+    </Svg>
+  )
+}

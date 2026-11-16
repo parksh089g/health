@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { SetEntry } from '../db'
+import type { AiExerciseSuggestion, SetEntry } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
 import { formatKg } from '../lib/format'
 import type { NewRecord, RecordKind } from '../lib/history'
@@ -14,7 +14,7 @@ import {
   type WorkoutItem,
 } from '../lib/workouts'
 import { Dialog } from './Dialog'
-import { CheckIcon, ChevronRightIcon, PlusIcon } from './icons'
+import { CheckIcon, ChevronRightIcon, PlusIcon, SparkleIcon } from './icons'
 import { NumberField } from './NumberField'
 import { PrBadge } from './PrBadge'
 
@@ -28,6 +28,8 @@ interface ExerciseCardProps {
   recommendation?: Recommendation | null
   /** 이 운동에서 새로 세운 기록(findNewRecords). 기록을 세운 세트에 PR 표시를 붙인다. */
   records?: NewRecord[]
+  /** AI 추천. 있으면 규칙 추천 대신 보여 준다(AI가 규칙 추천을 보고 정한 값이라 둘을 함께 두지 않는다). */
+  aiSuggestion?: AiExerciseSuggestion | null
 }
 
 /** "60×8" 또는 무게가 없으면 "8회" */
@@ -48,7 +50,7 @@ function knownTarget(item: WorkoutItem): number | null {
   return typeof v === 'number' && v > 0 ? v : null
 }
 
-export function ExerciseCard({ item, mode, onSetDone, recommendation, records = [] }: ExerciseCardProps) {
+export function ExerciseCard({ item, mode, onSetDone, recommendation, records = [], aiSuggestion }: ExerciseCardProps) {
   const [askRemove, setAskRemove] = useState(false)
   const { we, exercise, sets, lastSets } = item
   const name = exercise?.name ?? '지워진 종목'
@@ -92,9 +94,12 @@ export function ExerciseCard({ item, mode, onSetDone, recommendation, records = 
         </button>
       </header>
 
-      {mode === 'active' && recommendation && (
-        <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={recommendation} />
-      )}
+      {mode === 'active' &&
+        (aiSuggestion ? (
+          <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={aiSuggestion} variant="ai" />
+        ) : (
+          recommendation && <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={recommendation} />
+        ))}
 
       <div className="mt-2 grid gap-2">
         <div className={`grid ${columns} gap-2 text-center text-xs text-muted`}>
@@ -153,27 +158,37 @@ export function ExerciseCard({ item, mode, onSetDone, recommendation, records = 
 interface RecommendationBarProps {
   workoutExerciseId: string
   sets: SetEntry[]
-  recommendation: Recommendation
+  recommendation: Pick<Recommendation, 'weightKg' | 'reps' | 'reason' | 'fromWeightKg'>
+  /** rule: 앱의 규칙 추천, ai: Claude의 추천 */
+  variant?: 'rule' | 'ai'
 }
 
 /**
  * 다음 무게 추천 한 줄. "적용"을 누르면 아직 완료하지 않은 본 세트에 추천 값을 채운다(자동으로 바꾸지 않는다).
  * 버튼 폭을 고정해서 "적용"과 "적용됨"이 바뀌어도 아래 세트 줄이 움직이지 않게 한다.
  */
-function RecommendationBar({ workoutExerciseId, sets, recommendation: rec }: RecommendationBarProps) {
+function RecommendationBar({ workoutExerciseId, sets, recommendation: rec, variant = 'rule' }: RecommendationBarProps) {
   const applied = isRecommendationApplied(sets, rec)
   const hasPending = sets.some((s) => !s.isDone && !s.isWarmup)
   const value = rec.weightKg === null ? `${rec.reps}회` : `${formatKg(rec.weightKg)}kg × ${rec.reps}`
+  const ai = variant === 'ai'
 
   return (
     <div
       role="group"
-      aria-label="다음 무게 추천"
+      aria-label={ai ? 'AI 추천' : '다음 무게 추천'}
       className="mt-2 flex items-center gap-2 rounded-xl bg-accent-soft py-2 pl-3 pr-2"
     >
       <div className="min-w-0 flex-1">
         <p className="text-[15px] leading-snug text-ink">
-          <span className="font-semibold text-accent">추천</span>{' '}
+          {ai ? (
+            <span className="mr-0.5 inline-flex items-center gap-0.5 font-semibold text-accent">
+              <SparkleIcon className="size-4" />
+              AI
+            </span>
+          ) : (
+            <span className="font-semibold text-accent">추천</span>
+          )}{' '}
           <strong className="font-bold tabular-nums">{value}</strong>
         </p>
         <p className="mt-0.5 break-keep text-sm leading-snug text-muted">{rec.reason}</p>

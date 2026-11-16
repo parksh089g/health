@@ -252,11 +252,12 @@ export async function finishWorkout(
 
 /** 운동과 그 안의 종목, 세트를 모두 지운다. */
 export async function deleteWorkout(workoutId: string): Promise<void> {
-  await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, async () => {
+  await db.transaction('rw', [db.workouts, db.workoutExercises, db.sets, db.aiAdvice], async () => {
     const { wes, sets } = await setsOfWorkout(workoutId)
     await db.sets.bulkDelete(sets.map((s) => s.id))
     await db.workoutExercises.bulkDelete(wes.map((we) => we.id))
     await db.workouts.delete(workoutId)
+    await db.aiAdvice.where('workoutId').equals(workoutId).delete()
   })
 }
 
