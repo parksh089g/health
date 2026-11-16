@@ -1,0 +1,90 @@
+@import 'tailwindcss';
+
+/* 색은 여기 한 곳에서 정한다. 폰의 밝은/어두운 화면 설정을 그대로 따른다. */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #e9ecf1;
+  --line: #d9dee6;
+  --ink: #14171c;
+  --muted: #5f6b7a;
+  --accent: #2459d6;
+  --on-accent: #ffffff;
+  --accent-soft: #dfe8ff;
+  --good: #15803d;
+  --danger: #c62828;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --surface: #171b22;
+    --surface-2: #232934;
+    --line: #2e3542;
+    --ink: #eef1f5;
+    --muted: #9aa5b5;
+    --accent: #6f9bff;
+    --on-accent: #0a1022;
+    --accent-soft: #1b2a4d;
+    --good: #2f9e5b;
+    --danger: #f07070;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--good);
+  --color-danger: var(--danger);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Noto Sans KR', 'Malgun Gothic',
+    system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    /* 화면 끝에서 당겼을 때 페이지 전체가 튕기거나 새로고침되지 않게 한다. */
+    overscroll-behavior-y: none;
+  }
+
+  button,
+  a {
+    touch-action: manipulation;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+
+  /* 아이폰은 글자가 16px보다 작은 입력 칸을 누르면 화면을 확대한다. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  input[type='search']::-webkit-search-cancel-button {
+    display: none;
+  }
+}
