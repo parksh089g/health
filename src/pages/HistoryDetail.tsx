@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PageHeader } from '../components/PageHeader'
+import { SaveAsRoutine } from '../components/SaveAsRoutine'
 import { formatDay, formatDuration, formatTime, formatVolume } from '../lib/format'
 import { useGoBack } from '../lib/useGoBack'
 import { deleteWorkout, loadWorkoutDetail, repeatWorkout, totalVolume, updateWorkoutMemo } from '../lib/workouts'
@@ -65,6 +66,7 @@ export default function HistoryDetail() {
         >
           같은 운동 다시 하기
         </button>
+        <SaveAsRoutine workout={workout} items={items} />
         <button
           type="button"
           onClick={() => setAskDelete(true)}
