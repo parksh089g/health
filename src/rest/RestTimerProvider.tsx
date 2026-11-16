@@ -1,13 +1,17 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DEFAULT_REST_SECONDS, SETTING_KEYS, getRestSeconds, setSetting } from '../lib/settings'
+import {
+  adjustRest,
+  canAdjustRest,
+  parseRestTimer,
+  restDurationSeconds,
+  setRestDuration,
+  startRest,
+  type RestTimer,
+} from '../lib/rest'
+import { DEFAULT_REST_SECONDS, SETTING_KEYS, getRestSeconds, isRestSeconds, setSetting } from '../lib/settings'
 import { alertRestOver, releaseAudio, unlockAudio } from './alert'
 import { RestTimerContext, type RestTimerValue } from './context'
-
-interface Timer {
-  startedAt: number
-  endsAt: number
-}
 
 const STORAGE_KEY = 'health.restTimer'
 /** 휴식이 끝난 뒤 "휴식 끝" 표시를 남겨 두는 시간 */
@@ -15,21 +19,16 @@ const FINISHED_SHOW_MS = 8000
 /** 끝난 지 이 시간이 넘었으면(화면을 꺼 뒀다가 돌아온 경우) 소리와 진동은 생략한다 */
 const ALERT_WINDOW_MS = 3000
 
-function loadTimer(): Timer | null {
+function loadTimer(): RestTimer | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const t: unknown = JSON.parse(raw)
-    if (typeof t !== 'object' || t === null) return null
-    const { startedAt, endsAt } = t as Partial<Timer>
-    if (typeof startedAt !== 'number' || typeof endsAt !== 'number') return null
-    return Date.now() < endsAt + FINISHED_SHOW_MS ? { startedAt, endsAt } : null
+    const timer = parseRestTimer(sessionStorage.getItem(STORAGE_KEY))
+    return timer && Date.now() < timer.endsAt + FINISHED_SHOW_MS ? timer : null
   } catch {
     return null
   }
 }
 
-function saveTimer(timer: Timer | null): void {
+function saveTimer(timer: RestTimer | null): void {
   try {
     if (timer) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(timer))
     else sessionStorage.removeItem(STORAGE_KEY)
@@ -39,7 +38,7 @@ function saveTimer(timer: Timer | null): void {
 }
 
 export function RestTimerProvider({ children }: { children: ReactNode }) {
-  const [timer, setTimer] = useState<Timer | null>(loadTimer)
+  const [timer, setTimer] = useState<RestTimer | null>(loadTimer)
   const [now, setNow] = useState(() => Date.now())
   const alertedFor = useRef<number | null>(null)
   const restSeconds = useLiveQuery(getRestSeconds) ?? DEFAULT_REST_SECONDS
@@ -97,19 +96,32 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
   }, [running])
 
   const start = useCallback(
-    (seconds?: number) => {
+    (seconds?: number | null) => {
       unlockAudio()
       const t = Date.now()
       setNow(t)
-      setTimer({ startedAt: t, endsAt: t + (seconds ?? restSeconds) * 1000 })
+      // 종목에 정해 둔 시간이 있으면 그 시간으로, 없으면 설정의 기본값으로 쉰다.
+      setTimer(isRestSeconds(seconds) ? startRest(t, seconds, true) : startRest(t, restSeconds))
     },
     [restSeconds],
   )
 
-  const changeDuration = useCallback((seconds: number) => {
-    void setSetting(SETTING_KEYS.restSeconds, seconds)
-    setNow(Date.now())
-    setTimer((cur) => (cur ? { startedAt: cur.startedAt, endsAt: cur.startedAt + seconds * 1000 } : cur))
+  // 종목의 시간으로 시작한 휴식에서 고른 길이는 기본값으로 저장하지 않는다(스쿼트의 4분이 모든 종목의 기본값이 되지 않게).
+  const ownTime = timer?.ownTime === true
+  const changeDuration = useCallback(
+    (seconds: number) => {
+      if (!isRestSeconds(seconds)) return
+      if (!ownTime) void setSetting(SETTING_KEYS.restSeconds, seconds)
+      setNow(Date.now())
+      setTimer((cur) => (cur ? setRestDuration(cur, seconds) : cur))
+    },
+    [ownTime],
+  )
+
+  const adjust = useCallback((deltaSeconds: number) => {
+    const t = Date.now()
+    setNow(t)
+    setTimer((cur) => (cur ? adjustRest(cur, deltaSeconds, t) : cur))
   }, [])
 
   const stop = useCallback(() => setTimer(null), [])
@@ -120,12 +132,14 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
       active: timer !== null,
       finished: timer !== null && remainingMs === 0,
       remainingMs,
-      durationSeconds: timer ? Math.round((timer.endsAt - timer.startedAt) / 1000) : restSeconds,
+      durationSeconds: timer ? restDurationSeconds(timer) : restSeconds,
       start,
       changeDuration,
+      adjust,
+      canAdjust: (deltaSeconds) => timer !== null && canAdjustRest(timer, deltaSeconds, now),
       stop,
     }
-  }, [timer, now, restSeconds, start, changeDuration, stop])
+  }, [timer, now, restSeconds, start, changeDuration, adjust, stop])
 
   return <RestTimerContext.Provider value={value}>{children}</RestTimerContext.Provider>
 }

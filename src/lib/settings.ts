@@ -1,7 +1,15 @@
 import { db, type AiProfile } from '../db'
 
-export const REST_OPTIONS = [60, 90, 120] as const
+/** 휴식 타이머와 설정에서 바로 고를 수 있는 휴식 시간(초) */
+export const REST_OPTIONS = [60, 90, 120, 180, 240, 300] as const
 export const DEFAULT_REST_SECONDS = 90
+/** 휴식 시간으로 받을 수 있는 범위(초). 종목에 직접 적는 값과 타이머에서 늘릴 수 있는 한계에 쓴다. */
+export const REST_RANGE = { min: 10, max: 900 } as const
+
+/** 휴식 시간으로 쓸 수 있는 값인지(범위 안의 정수 초) */
+export function isRestSeconds(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= REST_RANGE.min && v <= REST_RANGE.max
+}
 
 export const SETTING_KEYS = {
   restSeconds: 'restSeconds',
@@ -30,7 +38,7 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
 /** 휴식 시간 기본값(초). 저장된 값이 이상하면 기본값을 쓴다. */
 export async function getRestSeconds(): Promise<number> {
   const v = await getSetting<unknown>(SETTING_KEYS.restSeconds, DEFAULT_REST_SECONDS)
-  return typeof v === 'number' && v > 0 && v <= 3600 ? v : DEFAULT_REST_SECONDS
+  return isRestSeconds(v) ? v : DEFAULT_REST_SECONDS
 }
 
 /** 마지막으로 백업한 시각. 한 번도 안 했으면 null. */

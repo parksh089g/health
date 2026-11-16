@@ -1,9 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ChartReadout } from '../components/charts/ChartReadout'
 import { ChartTable } from '../components/charts/ChartTable'
 import { TimeLineChart } from '../components/charts/TimeLineChart'
+import { ExerciseManage } from '../components/ExerciseManage'
 import { ChevronRightIcon } from '../components/icons'
 import { NumberField } from '../components/NumberField'
 import { PageHeader } from '../components/PageHeader'
@@ -12,10 +13,14 @@ import { db, type Exercise } from '../db'
 import {
   bodyPartLabel,
   equipmentLabel,
+  EXERCISE_NOTE_MAX,
   incrementFor,
   INCREMENT_RANGE,
+  restoreExercise,
   TARGET_REPS_RANGE,
   updateExerciseGoal,
+  updateExerciseNote,
+  updateExerciseRest,
 } from '../lib/exercises'
 import { formatFullDate, formatKg } from '../lib/format'
 import {
@@ -39,24 +44,25 @@ import {
   type ProgressMetric,
   type SessionPoint,
 } from '../lib/stats'
+import { DEFAULT_REST_SECONDS, getRestSeconds, REST_OPTIONS, REST_RANGE } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
 
 /** 처음에 보여 줄 지난 기록 수 */
 const RECENT_COUNT = 8
 
-/** 종목 상세. 개인 기록, 기록 추이 그래프, 지난 기록, 목표 횟수와 증량 단위. */
+/** 종목 상세. 개인 기록, 기록 추이 그래프, 지난 기록, 그리고 종목 설정(메모, 목표, 휴식 시간, 고치기와 숨기기). */
 export default function ExerciseDetail() {
   const { id = '' } = useParams()
   const goBack = useGoBack('/stats')
-  const data = useLiveQuery(async () => {
-    const exercise = await db.exercises.get(id)
-    if (!exercise) return null
-    return { exercise, sessions: await getExerciseSessions(id) }
-  }, [id])
+  // 종목과 기록을 따로 구독한다. 메모나 휴식 시간을 고칠 때마다 지난 기록을 전부 다시 읽지 않도록.
+  const exercise = useLiveQuery(async () => (await db.exercises.get(id)) ?? null, [id])
+  const sessions = useLiveQuery(() => getExerciseSessions(id), [id])
+  const defaultRest = useLiveQuery(getRestSeconds, []) ?? DEFAULT_REST_SECONDS
+  const settingsRef = useRef<HTMLDivElement>(null)
 
-  if (data === undefined) return <PageHeader title="종목" onBack={goBack} />
+  if (exercise === undefined || sessions === undefined) return <PageHeader title="종목" onBack={goBack} />
 
-  if (data === null) {
+  if (exercise === null) {
     return (
       <>
         <PageHeader title="종목" onBack={goBack} />
@@ -78,17 +84,45 @@ export default function ExerciseDetail() {
     )
   }
 
-  const { exercise, sessions } = data
   const points = exerciseSeries(sessions)
+  const kind = `${bodyPartLabel(exercise.bodyPart)} · ${equipmentLabel(exercise.equipment)}`
+  const subtitle = exercise.isCustom ? `${kind} · 내 종목` : kind
 
   return (
     <>
       <PageHeader
         title={exercise.name}
-        subtitle={`${bodyPartLabel(exercise.bodyPart)} · ${equipmentLabel(exercise.equipment)}`}
+        subtitle={subtitle}
         onBack={goBack}
+        right={
+          // 기록이 길면 설정이 한참 아래에 있어서, 바로 내려가는 버튼을 둔다.
+          points.length > 0 && (
+            <button
+              type="button"
+              onClick={() => settingsRef.current?.scrollIntoView({ block: 'start' })}
+              className="mr-1 h-11 shrink-0 rounded-xl px-3 text-[15px] font-semibold text-accent active:bg-surface-2"
+            >
+              종목 설정
+            </button>
+          )
+        }
       />
       <main className="flex-1 px-4 pb-10 pt-4">
+        {exercise.archived && (
+          <div className="mb-4 rounded-2xl border border-line bg-surface-2 p-4">
+            <p className="font-bold text-ink">숨긴 종목</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              종목 선택에 나오지 않습니다. 지난 기록과 통계, 루틴에는 그대로 남아 있습니다.
+            </p>
+            <button
+              type="button"
+              onClick={() => void restoreExercise(exercise.id)}
+              className="mt-3 h-11 w-full rounded-xl bg-accent font-semibold text-on-accent active:opacity-80"
+            >
+              다시 보이기
+            </button>
+          </div>
+        )}
         {points.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
             아직 끝낸 기록이 없습니다.
@@ -104,7 +138,27 @@ export default function ExerciseDetail() {
             <RecentSessions key={`recent-${exercise.id}`} points={points} />
           </>
         )}
-        <GoalCard key={exercise.id} exercise={exercise} />
+        {/* 머리줄(sticky)에 가리지 않게 여백을 두고 멈춘다. */}
+        <div ref={settingsRef} className="scroll-mt-[calc(4rem+env(safe-area-inset-top))]">
+          <NoteCard key={`note-${exercise.id}`} exercise={exercise} />
+          <GoalCard key={`goal-${exercise.id}`} exercise={exercise} />
+          <RestCard key={`rest-${exercise.id}`} exercise={exercise} defaultSeconds={defaultRest} />
+          <section aria-labelledby="manage-title" className="mt-6">
+            <h2 id="manage-title" className="font-bold text-ink">
+              종목 관리
+            </h2>
+            <div className="mt-2 rounded-2xl border border-line bg-surface p-4">
+              <ExerciseManage
+                key={exercise.id}
+                exercise={exercise}
+                onRemoved={(result) => {
+                  // 지운 종목은 더 볼 것이 없으니 돌아간다. 숨긴 종목은 이 화면에서 바로 되돌릴 수 있게 남는다.
+                  if (result === 'deleted') goBack()
+                }}
+              />
+            </div>
+          </section>
+        </div>
       </main>
     </>
   )
@@ -300,6 +354,33 @@ function RecentSessions({ points }: { points: SessionPoint[] }) {
   )
 }
 
+/**
+ * 바뀔 때마다 바로 저장하는 값 하나. 범위를 벗어난 값은 저장되지 않고, 칸을 벗어날 때(left) 오류를 알려 준다.
+ * 연달아 고치면 마지막 저장의 결과만 반영한다.
+ */
+function useAutoSave<T>(initial: T, save: (value: T) => Promise<void>) {
+  const [value, setValue] = useState<T>(initial)
+  const [error, setError] = useState<string | null>(null)
+  const [left, setLeft] = useState(false)
+  const seq = useRef(0)
+
+  const change = (next: T, opts: { left?: boolean } = {}) => {
+    setValue(next)
+    setLeft(opts.left ?? false)
+    const mine = ++seq.current
+    save(next).then(
+      () => {
+        if (mine === seq.current) setError(null)
+      },
+      (e: unknown) => {
+        if (mine === seq.current) setError(e instanceof Error ? e.message : '저장하지 못했습니다.')
+      },
+    )
+  }
+
+  return { value, change, error: left ? error : null, onBlur: () => setLeft(true) }
+}
+
 interface GoalFieldProps {
   label: string
   unit: string
@@ -312,28 +393,9 @@ interface GoalFieldProps {
 
 /** 목표 값 하나. 바뀔 때마다 바로 저장하고, 범위를 벗어난 값은 저장하지 않고 칸을 벗어날 때 알려 준다. */
 function GoalField({ label, unit, decimal, placeholder, hint, initial, save }: GoalFieldProps) {
-  const [value, setValue] = useState<number | null>(initial)
-  const [error, setError] = useState<string | null>(null)
-  const [left, setLeft] = useState(false)
-  const seq = useRef(0)
-
-  const change = (next: number | null) => {
-    setValue(next)
-    setLeft(false)
-    const mine = ++seq.current
-    save(next).then(
-      () => {
-        if (mine === seq.current) setError(null)
-      },
-      (e: unknown) => {
-        if (mine === seq.current) setError(e instanceof Error ? e.message : '저장하지 못했습니다.')
-      },
-    )
-  }
-
-  const showError = error !== null && left
+  const { value, change, error, onBlur } = useAutoSave(initial, save)
   return (
-    <div onBlur={() => setLeft(true)}>
+    <div onBlur={onBlur}>
       <p className="mb-1 text-sm font-medium text-ink">{label}</p>
       <NumberField
         value={value}
@@ -343,10 +405,144 @@ function GoalField({ label, unit, decimal, placeholder, hint, initial, save }: G
         ariaLabel={label}
         placeholder={placeholder}
       />
-      <p role={showError ? 'alert' : undefined} className={`mt-1 text-xs ${showError ? 'text-danger' : 'text-muted'}`}>
-        {showError ? error : hint}
+      <p role={error ? 'alert' : undefined} className={`mt-1 text-xs ${error ? 'text-danger' : 'text-muted'}`}>
+        {error ?? hint}
       </p>
     </div>
+  )
+}
+
+/** 몇 분 몇 초인지. 90 → "1분 30초", 180 → "3분", 45 → "45초" */
+function formatMinSec(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const sec = seconds % 60
+  if (m === 0) return `${sec}초`
+  return sec === 0 ? `${m}분` : `${m}분 ${sec}초`
+}
+
+/** 종목별 휴식 시간. 자주 쓰는 길이는 눌러서 고르고, 그 밖의 길이는 초로 직접 적는다. 바로 저장된다. */
+function RestCard({ exercise, defaultSeconds }: { exercise: Exercise; defaultSeconds: number }) {
+  const { value, change, error, onBlur } = useAutoSave<number | null>(exercise.restSeconds ?? null, (v) =>
+    updateExerciseRest(exercise.id, v),
+  )
+  const chip = (on: boolean) =>
+    `h-11 min-w-0 rounded-xl text-[15px] font-semibold tabular-nums active:opacity-70 ${
+      on ? 'bg-accent text-on-accent' : 'bg-surface-2 text-muted'
+    }`
+  return (
+    <section aria-labelledby="rest-title" className="mt-6">
+      <h2 id="rest-title" className="font-bold text-ink">
+        휴식 시간
+      </h2>
+      <div className="mt-2 rounded-2xl border border-line bg-surface p-4">
+        <div className="grid grid-cols-4 gap-2" role="group" aria-label="이 종목의 휴식 시간">
+          <button
+            type="button"
+            aria-pressed={value === null}
+            onClick={() => change(null, { left: true })}
+            className={chip(value === null)}
+          >
+            기본
+          </button>
+          {REST_OPTIONS.map((sec) => (
+            <button
+              key={sec}
+              type="button"
+              aria-pressed={value === sec}
+              onClick={() => change(sec, { left: true })}
+              className={chip(value === sec)}
+            >
+              {sec}초
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 items-center gap-3" onBlur={onBlur}>
+          <NumberField
+            value={value}
+            onChange={change}
+            unit="초"
+            ariaLabel="휴식 시간 직접 입력"
+            placeholder={`기본 ${defaultSeconds}`}
+          />
+          <p role={error ? 'alert' : undefined} className={`text-sm ${error ? 'text-danger' : 'text-muted'}`}>
+            {error ?? (value === null ? `직접 입력 · 기본 ${formatMinSec(defaultSeconds)}` : formatMinSec(value))}
+          </p>
+        </div>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          이 종목의 세트를 완료하면 이 시간으로 휴식 타이머가 시작됩니다. 기본으로 두면 설정의 휴식 시간 기본값(
+          {defaultSeconds}초)을 씁니다.
+        </p>
+        <p className="mt-1 text-xs text-muted">
+          바꾸면 바로 저장됩니다. {REST_RANGE.min}~{REST_RANGE.max}초로 정할 수 있습니다.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+/** 글을 멈추고 이만큼 지나면 메모를 저장한다. */
+const NOTE_SAVE_DELAY_MS = 600
+
+/**
+ * 종목 메모(시트 높이, 그립 같은 세팅). 운동 중 종목 카드에 보인다.
+ * 글자를 칠 때마다 저장하면 화면 전체가 다시 그려지므로, 잠깐 멈췄을 때와 칸이나 화면을 벗어날 때 저장한다.
+ */
+function NoteCard({ exercise }: { exercise: Exercise }) {
+  const [text, setText] = useState(exercise.note ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const latest = useRef(text)
+  const saved = useRef(text.trim())
+  const timer = useRef<number | null>(null)
+  const exerciseId = exercise.id
+
+  const flush = useCallback(() => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+    const next = latest.current.trim()
+    if (next === saved.current) return
+    saved.current = next
+    updateExerciseNote(exerciseId, next).then(
+      () => setError(null),
+      (e: unknown) => setError(e instanceof Error ? e.message : '저장하지 못했습니다.'),
+    )
+  }, [exerciseId])
+
+  // 다 치기 전에 화면을 떠나도 메모가 남게 한다.
+  useEffect(() => flush, [flush])
+
+  const change = (next: string) => {
+    setText(next)
+    latest.current = next
+    if (timer.current !== null) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(flush, NOTE_SAVE_DELAY_MS)
+  }
+
+  return (
+    <section aria-labelledby="note-title" className="mt-6">
+      <h2 id="note-title" className="flex items-baseline justify-between font-bold text-ink">
+        메모
+        <span className="text-sm font-normal tabular-nums text-muted">
+          {text.length}/{EXERCISE_NOTE_MAX}
+        </span>
+      </h2>
+      <div className="mt-2 rounded-2xl border border-line bg-surface p-4">
+        <textarea
+          value={text}
+          onChange={(e) => change(e.currentTarget.value)}
+          onBlur={flush}
+          maxLength={EXERCISE_NOTE_MAX}
+          rows={3}
+          aria-label="종목 메모"
+          placeholder="예: 시트 높이 4칸, 와이드 그립"
+          className="block w-full resize-none rounded-xl border border-line bg-bg px-3 py-2.5 leading-relaxed text-ink outline-none placeholder:text-muted/60 focus:border-accent"
+        />
+        <p role={error ? 'alert' : undefined} className={`mt-2 text-xs ${error ? 'text-danger' : 'text-muted'}`}>
+          {error ?? '시트 높이나 그립 같은 세팅을 적어 두면 운동 중 이 종목 카드에 보입니다. 적으면 바로 저장됩니다.'}
+        </p>
+      </div>
+    </section>
   )
 }
 
