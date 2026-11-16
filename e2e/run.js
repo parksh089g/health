@@ -16,14 +16,27 @@ import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright'
 import { preview } from 'vite'
+import * as aiCoach from './ai-coach.js'
 import * as ai from './ai.js'
+import * as bodyBackup from './body-backup.js'
+import * as exercisesRest from './exercises-rest.js'
 import { createChecks } from './lib/checks.js'
 import { openPhone } from './lib/phone.js'
+import * as measure from './measure.js'
 import * as routinesStats from './routines-stats.js'
 import * as smoke from './smoke.js'
+import * as workoutCard from './workout-card.js'
 
-const SCENARIOS = { smoke, 'routines-stats': routinesStats, ai }
-SCENARIOS.measure = await import('./measure.js')
+const SCENARIOS = {
+  smoke,
+  'routines-stats': routinesStats,
+  ai,
+  'workout-card': workoutCard,
+  'exercises-rest': exercisesRest,
+  'body-backup': bodyBackup,
+  'ai-coach': aiCoach,
+  measure,
+}
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SHOTS = path.join(ROOT, 'e2e', 'screenshots')
