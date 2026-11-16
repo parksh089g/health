@@ -39,7 +39,7 @@ describe('CSV 내보내기', () => {
     const detail = await loadWorkoutDetail(id)
     const [squat, pullUp] = detail!.items
     await updateSet(squat.sets[0].id, { weightKg: 20, reps: 10, isWarmup: true, isDone: true })
-    await updateSet(squat.sets[1].id, { weightKg: 60, reps: 8, isDone: true })
+    await updateSet(squat.sets[1].id, { weightKg: 60, reps: 8, isDone: true, rpe: 8.5 })
     await updateSet(squat.sets[2].id, { weightKg: 62.5, reps: 6 }) // 완료 안 함
     await updateSet(pullUp.sets[0].id, { reps: 10, isDone: true })
     await finishWorkout(id, { memo: '컨디션 좋음, 다음엔 65', endedAt: Date.now() })
@@ -48,10 +48,14 @@ describe('CSV 내보내기', () => {
     const lines = parseLines(await exportCsv())
     expect(lines).toEqual([
       CSV_COLUMNS.join(','),
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,8.5,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,,"컨디션 좋음, 다음엔 65"',
     ])
+  })
+
+  it('RPE 칸은 횟수 다음, 운동 메모 앞에 있다', () => {
+    expect(CSV_COLUMNS.slice(-3)).toEqual(['횟수', 'RPE', '운동 메모'])
   })
 
   it('기록이 없으면 머리줄만 있다', async () => {

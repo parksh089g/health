@@ -5,6 +5,14 @@ import { newId } from './id'
 /** 지난 기록이 없는 종목을 추가할 때 만드는 빈 세트 수 */
 export const DEFAULT_SET_COUNT = 3
 
+/** 고를 수 있는 힘든 정도(RPE). 6부터 10까지 0.5 단위. */
+export const RPE_VALUES: readonly number[] = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10]
+
+/** 저장해도 되는 RPE 값인지 */
+export function isValidRpe(value: unknown): value is number {
+  return typeof value === 'number' && RPE_VALUES.includes(value)
+}
+
 export interface WorkoutItem {
   we: WorkoutExercise
   /** 종목이 지워졌으면 undefined */
@@ -91,7 +99,10 @@ type SetTemplate = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup'>
 
 const EMPTY_SET: SetTemplate = { weightKg: null, reps: null, isWarmup: false }
 
-/** 지난 세트로 새 세트의 틀을 만든다. */
+/**
+ * 지난 세트로 새 세트의 틀을 만든다.
+ * 무게, 횟수, 웜업 여부만 따라간다. RPE는 그날 그 세트가 어땠는지를 적은 값이라 가져오지 않는다.
+ */
 export function prefillTemplate(last: SetEntry[], setCount?: number, targetReps?: number | null): SetTemplate[] {
   const toTemplate = (s: SetEntry): SetTemplate => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup })
   // 지난 기록이 없을 때 빈 세트. 루틴에 목표 횟수가 있으면 횟수만 미리 채운다.
@@ -154,7 +165,28 @@ export async function removeWorkoutExercise(workoutExerciseId: string): Promise<
   })
 }
 
-/** 세트를 하나 더한다. 값은 바로 앞 세트를 따라간다. */
+/**
+ * 운동 안에서 종목을 한 칸 위(-1)나 아래(1)로 옮긴다. 순서 값은 0부터 빈틈없이 다시 매긴다.
+ * 맨 위에서 위로, 맨 아래에서 아래로는 아무것도 바꾸지 않고 false를 돌려준다.
+ */
+export async function moveWorkoutExercise(workoutExerciseId: string, direction: -1 | 1): Promise<boolean> {
+  return db.transaction('rw', db.workoutExercises, async () => {
+    const we = await db.workoutExercises.get(workoutExerciseId)
+    if (!we) return false
+    const list = await db.workoutExercises.where('workoutId').equals(we.workoutId).sortBy('order')
+    const from = list.findIndex((x) => x.id === workoutExerciseId)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= list.length) return false
+
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    const changed = list.flatMap((x, i) => (x.order === i ? [] : [{ key: x.id, changes: { order: i } }]))
+    await db.workoutExercises.bulkUpdate(changed)
+    return true
+  })
+}
+
+/** 세트를 하나 더한다. 무게와 횟수는 바로 앞 세트를 따라간다(RPE는 따라가지 않는다). */
 export async function addSet(workoutExerciseId: string, opts: { done?: boolean } = {}): Promise<void> {
   await db.transaction('rw', db.sets, async () => {
     const sets = await db.sets.where('workoutExerciseId').equals(workoutExerciseId).sortBy('order')
@@ -171,20 +203,25 @@ export async function addSet(workoutExerciseId: string, opts: { done?: boolean }
   })
 }
 
-/** 마지막 세트를 지운다. */
-export async function removeLastSet(workoutExerciseId: string): Promise<void> {
+/** 세트 하나를 지우고, 남은 세트의 순서를 0부터 빈틈없이 다시 매긴다. 어느 세트든 지울 수 있다. */
+export async function removeSet(setId: string): Promise<void> {
   await db.transaction('rw', db.sets, async () => {
-    const sets = await db.sets.where('workoutExerciseId').equals(workoutExerciseId).sortBy('order')
-    const last = sets.at(-1)
-    if (last) await db.sets.delete(last.id)
+    const set = await db.sets.get(setId)
+    if (!set) return
+    await db.sets.delete(setId)
+    const rest = await db.sets.where('workoutExerciseId').equals(set.workoutExerciseId).sortBy('order')
+    const changed = rest.flatMap((s, i) => (s.order === i ? [] : [{ key: s.id, changes: { order: i } }]))
+    await db.sets.bulkUpdate(changed)
   })
 }
 
+/** 세트 값을 고친다. RPE는 6~10의 0.5 단위만 받고, 그 밖의 값은 "적지 않음"(null)으로 저장한다. */
 export async function updateSet(
   id: string,
-  patch: Partial<Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>>,
+  patch: Partial<Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'rpe'>>,
 ): Promise<void> {
-  await db.sets.update(id, patch)
+  const invalidRpe = patch.rpe !== undefined && patch.rpe !== null && !isValidRpe(patch.rpe)
+  await db.sets.update(id, invalidRpe ? { ...patch, rpe: null } : patch)
 }
 
 /**
