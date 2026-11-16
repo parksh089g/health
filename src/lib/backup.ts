@@ -8,7 +8,7 @@ import {
   type WorkoutExercise,
 } from '../db'
 import { toDateKey } from './format'
-import { SETTING_KEYS } from './settings'
+import { DEVICE_ONLY_SETTING_KEYS, SETTING_KEYS } from './settings'
 
 export const BACKUP_FORMAT = 'health-log-backup'
 /**
@@ -48,7 +48,8 @@ export async function exportBackup(now: Date = new Date()): Promise<BackupFile> 
         workouts: await db.workouts.toArray(),
         workoutExercises: await db.workoutExercises.toArray(),
         sets: await db.sets.toArray(),
-        settings: await db.settings.toArray(),
+        // API 키처럼 이 폰에만 두는 설정은 백업 파일에 넣지 않는다.
+        settings: (await db.settings.toArray()).filter((r) => !DEVICE_ONLY_SETTING_KEYS.includes(r.key)),
         routines: await db.routines.toArray(),
       },
     }),
@@ -189,20 +190,25 @@ export async function importBackup(backup: BackupFile): Promise<void> {
   const { data } = backup
   const exportedAt = Date.parse(backup.exportedAt)
 
-  const tables = [db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, db.routines]
+  const tables = [db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, db.routines, db.aiAdvice]
   await db.transaction('rw', tables, async () => {
+    // 이 폰에만 두는 설정(API 키 등)은 복원해도 그대로 남긴다.
+    const deviceOnly = (await db.settings.bulkGet([...DEVICE_ONLY_SETTING_KEYS])).filter((r) => r !== undefined)
     await db.sets.clear()
     await db.workoutExercises.clear()
     await db.workouts.clear()
     await db.exercises.clear()
     await db.settings.clear()
     await db.routines.clear()
+    // AI 답은 지운 기록을 가리킬 수 있어 함께 지운다.
+    await db.aiAdvice.clear()
 
     await db.exercises.bulkAdd(data.exercises)
     await db.workouts.bulkAdd(data.workouts)
     await db.workoutExercises.bulkAdd(data.workoutExercises)
     await db.sets.bulkAdd(data.sets)
-    await db.settings.bulkPut(data.settings)
+    await db.settings.bulkPut(data.settings.filter((r) => !DEVICE_ONLY_SETTING_KEYS.includes(r.key)))
+    await db.settings.bulkPut(deviceOnly)
     await db.routines.bulkAdd(data.routines)
 
     // 복원한 기록은 이 백업 파일과 같으므로, 백업한 날짜도 파일을 만든 때로 맞춘다.

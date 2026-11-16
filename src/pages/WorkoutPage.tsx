@@ -1,14 +1,17 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { AiWorkoutPanel } from '../components/AiWorkoutPanel'
 import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
+import { getWorkoutAdvice } from '../lib/ai/advice'
+import { getAiModel } from '../lib/ai/models'
 import { formatClock } from '../lib/format'
 import { findNewRecords } from '../lib/history'
 import { getWorkoutRecommendations } from '../lib/recommend'
-import { getRecommendEnabled } from '../lib/settings'
+import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
 import { useNow } from '../lib/useNow'
 import { deleteWorkout, loadWorkoutDetail } from '../lib/workouts'
@@ -35,10 +38,24 @@ export default function WorkoutPage() {
   // 추천은 지난 기록만 보므로 세트를 입력하는 동안에는 바뀌지 않는다.
   const recommendations = useLiveQuery(() => orEmpty(getWorkoutRecommendations(id), new Map()), [id])
   const records = useLiveQuery(() => orEmpty(findNewRecords(id), []), [id])
+  // AI 추천(3단계). 설정에서 켰을 때만 보인다. 키 자체는 화면에 넘기지 않고 있는지만 본다.
+  const ai = useLiveQuery(async () => {
+    const [enabled, key, model] = await Promise.all([getAiEnabled(), getAiApiKey(), getAiModel()])
+    return { enabled, hasKey: key !== null, model }
+  }, [])
+  const advice = useLiveQuery(() => orEmpty(getWorkoutAdvice(id), null), [id])
 
   // 추천이 나중에 끼어들어 세트 줄이 밀리지 않도록, 추천까지 준비된 뒤에 그린다.
   // (PR 표시는 자리를 차지하지 않으니 기다리지 않는다.)
-  if (detail === undefined || recommendOn === undefined || recommendations === undefined) return null
+  if (
+    detail === undefined ||
+    recommendOn === undefined ||
+    recommendations === undefined ||
+    ai === undefined ||
+    advice === undefined
+  ) {
+    return null
+  }
   if (detail === null) return <Navigate to="/" replace />
   if (detail.workout.endedAt !== null) return <Navigate to={`/history/${id}`} replace />
 
@@ -68,6 +85,16 @@ export default function WorkoutPage() {
       />
 
       <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-56' : 'pb-10'}`}>
+        {ai.enabled && (
+          <AiWorkoutPanel
+            workoutId={id}
+            model={ai.model}
+            hasKey={ai.hasKey}
+            hasItems={items.length > 0}
+            advice={advice}
+          />
+        )}
+
         {items.length === 0 && (
           <p className="px-2 py-8 text-center leading-relaxed text-muted">
             오늘 할 종목을 추가해 주세요.
@@ -85,6 +112,9 @@ export default function WorkoutPage() {
               onSetDone={() => rest.start()}
               recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
               records={records}
+              aiSuggestion={
+                ai.enabled ? advice?.exercises.find((e) => e.workoutExerciseId === item.we.id) ?? null : null
+              }
             />
           ))}
         </div>

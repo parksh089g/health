@@ -7,7 +7,14 @@ export const SETTING_KEYS = {
   restSeconds: 'restSeconds',
   lastBackupAt: 'lastBackupAt',
   recommendEnabled: 'recommendEnabled',
+  aiEnabled: 'aiEnabled',
+  aiApiKey: 'aiApiKey',
+  aiModel: 'aiModel',
+  aiUsage: 'aiUsage',
 } as const
+
+/** 이 폰에만 두고 백업 파일에는 넣지 않는 설정. 복원해도 이 폰의 값이 그대로 남는다. */
+export const DEVICE_ONLY_SETTING_KEYS: readonly string[] = [SETTING_KEYS.aiApiKey, SETTING_KEYS.aiUsage]
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const row = await db.settings.get(key)
@@ -34,4 +41,16 @@ export async function getLastBackupAt(): Promise<number | null> {
 export async function getRecommendEnabled(): Promise<boolean> {
   const v = await getSetting<unknown>(SETTING_KEYS.recommendEnabled, true)
   return typeof v === 'boolean' ? v : true
+}
+
+/** AI 추천을 쓰는지. 기본은 꺼짐(켜야 기록이 밖으로 나간다). */
+export async function getAiEnabled(): Promise<boolean> {
+  const v = await getSetting<unknown>(SETTING_KEYS.aiEnabled, false)
+  return v === true
+}
+
+/** 저장한 Anthropic API 키. 없으면 null */
+export async function getAiApiKey(): Promise<string | null> {
+  const v = await getSetting<unknown>(SETTING_KEYS.aiApiKey, null)
+  return typeof v === 'string' && v.trim() !== '' ? v : null
 }

@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { AiReviewCard } from '../components/AiReviewCard'
 import { ChartReadout } from '../components/charts/ChartReadout'
 import { ChartTable } from '../components/charts/ChartTable'
 import { ColumnChart } from '../components/charts/ColumnChart'
@@ -66,6 +67,7 @@ function StatsBody({ data, now }: { data: StatsData; now: number }) {
   return (
     <>
       <Overview data={data} weeks={weeks} thisMonth={thisMonth} />
+      <AiReviewCard />
       <WeeklyCard weeks={weeks} />
       <BodyPartCard data={data} now={now} />
       <CalendarCard data={data} now={now} />

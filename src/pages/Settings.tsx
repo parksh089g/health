@@ -1,6 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
+import { AiSettings } from '../components/AiSettings'
 import { Dialog } from '../components/Dialog'
+import { Toggle } from '../components/Toggle'
 import { db } from '../db'
 import { backupFileName, exportBackup, importBackup, parseBackup, type BackupFile } from '../lib/backup'
 import { csvFileName, exportCsv } from '../lib/csv'
@@ -186,6 +188,8 @@ export default function Settings() {
         </button>
       </section>
 
+      <AiSettings />
+
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="백업">
         <h2 className="font-bold text-ink">백업</h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
@@ -310,23 +314,5 @@ export default function Settings() {
         )}
       </Dialog>
     </div>
-  )
-}
-
-/** 켜고 끄는 스위치 모양. 누르는 곳은 바깥의 버튼이다. */
-function Toggle({ on }: { on: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`relative h-8 w-14 shrink-0 rounded-full border transition-colors ${
-        on ? 'border-accent bg-accent' : 'border-line bg-surface-2'
-      }`}
-    >
-      <span
-        className={`absolute top-[3px] size-6 rounded-full shadow-sm transition-[left] ${
-          on ? 'left-[27px] bg-on-accent' : 'left-[3px] bg-muted'
-        }`}
-      />
-    </span>
   )
 }

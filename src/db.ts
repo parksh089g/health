@@ -84,6 +84,57 @@ export interface SettingRow {
   value: unknown
 }
 
+/** AI(Claude)가 오늘 운동의 한 종목에 제안한 값 */
+export interface AiExerciseSuggestion {
+  workoutExerciseId: string
+  /** 추천 무게(kg). 맨몸 종목이면 null */
+  weightKg: number | null
+  reps: number
+  reason: string
+  /** 적용할 때 바꿀 세트의 무게(지난번 최고 무게). 피라미드의 가벼운 세트는 그대로 둔다. */
+  fromWeightKg: number | null
+}
+
+export interface AiWorkoutAdvice {
+  /** 오늘 운동 전체에 대한 한두 문장 */
+  summary: string
+  exercises: AiExerciseSuggestion[]
+}
+
+/** AI 기록 분석 */
+export interface AiReview {
+  /** 한 줄 요약 */
+  headline: string
+  /** 잘하고 있는 점 */
+  good: string[]
+  /** 살펴볼 점 */
+  watch: string[]
+  /** 다음 몇 주 동안 해 볼 것 */
+  suggestions: string[]
+}
+
+/**
+ * AI가 준 답. 다시 열어도 같은 답을 보도록(요금이 다시 나가지 않도록) 폰에 저장한다.
+ * 기록에서 다시 만들 수 있으니 백업 파일에는 넣지 않는다. (3단계)
+ */
+export type AiAdvice =
+  | AiAdviceBase<'workout', AiWorkoutAdvice>
+  | AiAdviceBase<'review', AiReview>
+
+interface AiAdviceBase<K extends string, D> {
+  /** 'workout:<운동 id>' 또는 'review'(가장 최근 분석 하나만 남긴다) */
+  id: string
+  kind: K
+  /** 운동 추천이면 그 운동 id, 분석이면 null */
+  workoutId: string | null
+  createdAt: number
+  /** 실제로 답한 모델 */
+  model: string
+  /** 추정 요금(달러) */
+  costUsd: number
+  data: D
+}
+
 export class HealthDB extends Dexie {
   exercises!: Table<Exercise, string>
   workouts!: Table<Workout, string>
@@ -91,6 +142,7 @@ export class HealthDB extends Dexie {
   sets!: Table<SetEntry, string>
   settings!: Table<SettingRow, string>
   routines!: Table<Routine, string>
+  aiAdvice!: Table<AiAdvice, string>
 
   constructor(name = 'health-log') {
     super(name)
@@ -105,6 +157,10 @@ export class HealthDB extends Dexie {
     // (종목, 운동, 종목 기록에 붙은 새 필드는 인덱스가 아니어서 스키마를 바꿀 필요가 없다.)
     this.version(2).stores({
       routines: 'id, name, updatedAt',
+    })
+    // 3단계: AI가 준 답을 저장하는 테이블 추가. 기존 테이블은 그대로다.
+    this.version(3).stores({
+      aiAdvice: 'id, kind, workoutId',
     })
   }
 }
