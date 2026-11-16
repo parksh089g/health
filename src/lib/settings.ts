@@ -6,6 +6,7 @@ export const DEFAULT_REST_SECONDS = 90
 export const SETTING_KEYS = {
   restSeconds: 'restSeconds',
   lastBackupAt: 'lastBackupAt',
+  recommendEnabled: 'recommendEnabled',
 } as const
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
@@ -27,4 +28,10 @@ export async function getRestSeconds(): Promise<number> {
 export async function getLastBackupAt(): Promise<number | null> {
   const v = await getSetting<unknown>(SETTING_KEYS.lastBackupAt, null)
   return typeof v === 'number' ? v : null
+}
+
+/** 운동 중에 다음 무게 추천을 보여 줄지. 기본은 켜짐. */
+export async function getRecommendEnabled(): Promise<boolean> {
+  const v = await getSetting<unknown>(SETTING_KEYS.recommendEnabled, true)
+  return typeof v === 'boolean' ? v : true
 }

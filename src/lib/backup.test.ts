@@ -29,7 +29,22 @@ async function dump() {
     workouts: sortById(backup.data.workouts),
     workoutExercises: sortById(backup.data.workoutExercises),
     sets: sortById(backup.data.sets),
+    routines: sortById(backup.data.routines),
   }
+}
+
+async function addRoutine() {
+  await db.routines.add({
+    id: 'r1',
+    name: '하체 날',
+    items: [
+      { exerciseId: 'seed:squat', sets: 5, reps: 5 },
+      { exerciseId: 'seed:leg-press', sets: 3, reps: null },
+    ],
+    createdAt: 1,
+    updatedAt: 2,
+    lastUsedAt: null,
+  })
 }
 
 describe('백업과 복원', () => {
@@ -37,6 +52,8 @@ describe('백업과 복원', () => {
     await recordOne(1_000, 60)
     await recordOne(10_000_000, 62.5)
     await setSetting(SETTING_KEYS.restSeconds, 120)
+    await addRoutine()
+    await db.exercises.update('seed:squat', { targetReps: 5, incrementKg: 5 })
     const before = await dump()
     const text = JSON.stringify(await exportBackup(new Date('2026-11-16T12:00:00Z')))
 
@@ -45,7 +62,21 @@ describe('백업과 복원', () => {
     await importBackup(parseBackup(text))
 
     expect(await dump()).toEqual(before)
+    expect(before.routines).toHaveLength(1)
     expect(await getRestSeconds()).toBe(120)
+  })
+
+  it('루틴이 없는 버전 1 백업도 복원한다', async () => {
+    await recordOne(1_000, 60)
+    const v1 = await exportBackup()
+    const file = { ...v1, version: 1, data: { ...v1.data } as Partial<typeof v1.data> }
+    delete file.data.routines
+    await addRoutine()
+
+    await importBackup(parseBackup(JSON.stringify(file)))
+
+    expect(await db.routines.count()).toBe(0)
+    expect(await db.workouts.count()).toBe(1)
   })
 
   it('복원하면 지금 있는 기록은 지워지고 백업 내용으로 바뀐다', async () => {
@@ -92,7 +123,7 @@ describe('백업 파일 검사', () => {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: '2026-11-16T12:00:00.000Z',
-    data: { exercises: [], workouts: [], workoutExercises: [], sets: [], settings: [] },
+    data: { exercises: [], workouts: [], workoutExercises: [], sets: [], settings: [], routines: [] },
   })
 
   it('형식이 맞는 파일은 통과한다', () => {
@@ -117,6 +148,39 @@ describe('백업 파일 검사', () => {
     const file = valid()
     delete (file.data as Partial<typeof file.data>).sets
     expect(() => parseBackup(JSON.stringify(file))).toThrow('sets 목록이 없습니다.')
+  })
+
+  it('버전 2부터는 루틴 목록이 있어야 한다', () => {
+    const file = valid()
+    delete (file.data as Partial<typeof file.data>).routines
+    expect(() => parseBackup(JSON.stringify(file))).toThrow('routines 목록이 없습니다.')
+  })
+
+  it('루틴 항목의 형식이 틀리면 거절한다', () => {
+    const file = valid()
+    ;(file.data.routines as unknown[]).push({
+      id: 'r1',
+      name: '루틴',
+      items: [{ exerciseId: 'seed:squat', sets: 0, reps: 5 }],
+      createdAt: 1,
+      updatedAt: 1,
+      lastUsedAt: null,
+    })
+    expect(() => parseBackup(JSON.stringify(file))).toThrow('routines 항목 형식이 올바르지 않습니다.')
+  })
+
+  it('2단계에 더한 필드의 형식도 확인한다', () => {
+    const file = valid()
+    ;(file.data.exercises as unknown[]).push({
+      id: 'e1',
+      name: '스쿼트',
+      bodyPart: 'legs',
+      equipment: 'barbell',
+      isCustom: false,
+      createdAt: 1,
+      targetReps: '다섯',
+    })
+    expect(() => parseBackup(JSON.stringify(file))).toThrow('exercises 항목 형식이 올바르지 않습니다.')
   })
 
   it('항목의 형식이 틀리면 거절한다', () => {

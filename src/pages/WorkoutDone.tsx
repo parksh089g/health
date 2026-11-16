@@ -3,8 +3,17 @@ import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Dialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
+import { PrBadge } from '../components/PrBadge'
 import { formatDuration, formatVolume } from '../lib/format'
-import { deleteWorkout, finishWorkout, loadWorkoutDetail, markEnteredSetsDone, totalVolume } from '../lib/workouts'
+import { RECORD_LABELS, findNewRecords, formatRecordValue, type NewRecord } from '../lib/history'
+import {
+  deleteWorkout,
+  finishWorkout,
+  loadWorkoutDetail,
+  markEnteredSetsDone,
+  totalVolume,
+  type WorkoutItem,
+} from '../lib/workouts'
 import { useRestTimer } from '../rest/context'
 
 /** 운동 완료 화면. 요약을 보고 메모를 남긴 뒤 저장한다. */
@@ -18,6 +27,7 @@ export default function WorkoutDone() {
   const [saving, setSaving] = useState(false)
   const [askDiscard, setAskDiscard] = useState(false)
   const detail = useLiveQuery(() => loadWorkoutDetail(id), [id])
+  const records = useLiveQuery(() => findNewRecords(id), [id])
 
   if (detail === undefined) return null
   if (detail === null) return <Navigate to="/" replace />
@@ -60,6 +70,8 @@ export default function WorkoutDone() {
           <Stat label="종목" value={`${doneExercises}개`} />
           <Stat label="완료한 세트" value={`${doneSets.length}개`} />
         </dl>
+
+        {records && records.length > 0 && <NewRecords records={records} items={detail.items} />}
 
         {pending.length > 0 && (
           <section className="mt-4 rounded-2xl border border-line bg-surface p-4">
@@ -138,6 +150,40 @@ export default function WorkoutDone() {
         이 운동에 입력한 내용이 모두 지워집니다.
       </Dialog>
     </>
+  )
+}
+
+/** 이번 운동에서 새로 세운 기록. 종목별로 묶어서 새 값과 이전 값을 보여 준다. */
+function NewRecords({ records, items }: { records: NewRecord[]; items: WorkoutItem[] }) {
+  const groups = items
+    .map((item) => ({ item, list: records.filter((r) => r.exerciseId === item.we.exerciseId) }))
+    .filter((g) => g.list.length > 0)
+
+  return (
+    <section className="mt-4 rounded-2xl bg-accent-soft p-4" aria-label="새 기록">
+      <h2 className="flex items-center gap-2 font-bold text-accent">
+        <PrBadge />
+        새 기록 {records.length}개
+      </h2>
+      <ul className="mt-2 grid gap-3">
+        {groups.map(({ item, list }) => (
+          <li key={item.we.id}>
+            <p className="font-semibold text-ink">{item.exercise?.name ?? '지워진 종목'}</p>
+            <ul className="mt-1 grid gap-1">
+              {list.map((r) => (
+                <li key={r.kind} className="flex items-baseline gap-2 text-[15px]">
+                  <span className="min-w-0 flex-1 text-muted">{RECORD_LABELS[r.kind]}</span>
+                  <span className="font-bold tabular-nums text-ink">{formatRecordValue(r.kind, r.value)}</span>
+                  <span className="w-[6.5rem] shrink-0 text-right text-sm tabular-nums text-muted">
+                    이전 {formatRecordValue(r.kind, r.previous)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

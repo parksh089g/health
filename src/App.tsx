@@ -1,10 +1,14 @@
 import { HashRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { TabBar } from './components/TabBar'
+import ExerciseDetail from './pages/ExerciseDetail'
 import ExercisePicker from './pages/ExercisePicker'
 import History from './pages/History'
 import HistoryDetail from './pages/HistoryDetail'
 import Home from './pages/Home'
+import RoutineEditor from './pages/RoutineEditor'
+import Routines from './pages/Routines'
 import Settings from './pages/Settings'
+import Stats from './pages/Stats'
 import WorkoutDone from './pages/WorkoutDone'
 import WorkoutPage from './pages/WorkoutPage'
 import { RestTimerProvider } from './rest/RestTimerProvider'
@@ -31,12 +35,17 @@ export default function App() {
             <Route element={<TabLayout />}>
               <Route index element={<Home />} />
               <Route path="history" element={<History />} />
+              <Route path="stats" element={<Stats />} />
               <Route path="settings" element={<Settings />} />
             </Route>
             <Route path="workout/:id" element={<WorkoutPage />} />
             <Route path="workout/:id/pick" element={<ExercisePicker />} />
             <Route path="workout/:id/done" element={<WorkoutDone />} />
             <Route path="history/:id" element={<HistoryDetail />} />
+            {/* 2단계 */}
+            <Route path="exercises/:id" element={<ExerciseDetail />} />
+            <Route path="routines" element={<Routines />} />
+            <Route path="routines/:id" element={<RoutineEditor />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

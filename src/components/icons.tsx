@@ -39,6 +39,15 @@ export function HistoryIcon(props: IconProps) {
   )
 }
 
+export function StatsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20h16" />
+      <path d="M7 16v-5M12 16V6M17 16v-8" />
+    </Svg>
+  )
+}
+
 export function SettingsIcon(props: IconProps) {
   return (
     <Svg {...props}>
