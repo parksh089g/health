@@ -5,7 +5,8 @@ import { Dialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { PrBadge } from '../components/PrBadge'
 import { formatDuration, formatVolume } from '../lib/format'
-import { RECORD_LABELS, findNewRecords, formatRecordValue, type NewRecord } from '../lib/history'
+import { findNewRecords, formatRecordValue, recordLabel, type NewRecord } from '../lib/history'
+import { isSetEntered } from '../lib/measure'
 import {
   deleteWorkout,
   finishWorkout,
@@ -37,8 +38,8 @@ export default function WorkoutDone() {
 
   const allSets = detail.items.flatMap((item) => item.sets)
   const doneSets = allSets.filter((s) => s.isDone)
-  // 횟수는 적었는데 완료 체크를 하지 않은 세트
-  const pending = allSets.filter((s) => !s.isDone && (s.reps ?? 0) > 0)
+  // 횟수(시간 종목은 시간)는 적었는데 완료 체크를 하지 않은 세트
+  const pending = allSets.filter((s) => !s.isDone && isSetEntered(s))
   const doneExercises = detail.items.filter((item) => item.sets.some((s) => s.isDone)).length
 
   const save = async () => {
@@ -172,10 +173,12 @@ function NewRecords({ records, items }: { records: NewRecord[]; items: WorkoutIt
             <ul className="mt-1 grid gap-1">
               {list.map((r) => (
                 <li key={r.kind} className="flex items-baseline gap-2 text-[15px]">
-                  <span className="min-w-0 flex-1 text-muted">{RECORD_LABELS[r.kind]}</span>
-                  <span className="font-bold tabular-nums text-ink">{formatRecordValue(r.kind, r.value)}</span>
+                  <span className="min-w-0 flex-1 text-muted">{recordLabel(r.kind, item.exercise)}</span>
+                  <span className="font-bold tabular-nums text-ink">
+                    {formatRecordValue(r.kind, r.value, item.exercise)}
+                  </span>
                   <span className="w-[6.5rem] shrink-0 text-right text-sm tabular-nums text-muted">
-                    이전 {formatRecordValue(r.kind, r.previous)}
+                    이전 {formatRecordValue(r.kind, r.previous, item.exercise)}
                   </span>
                 </li>
               ))}

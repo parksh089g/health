@@ -2,9 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AiExerciseSuggestion, SetEntry } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
-import { formatKg } from '../lib/format'
-import type { NewRecord, RecordKind } from '../lib/history'
-import { applyRecommendation, isRecommendationApplied, type Recommendation } from '../lib/recommend'
+import { recordLabel, type NewRecord } from '../lib/history'
+import { formatSetShort, formatTarget, isSetEntered, isTimed, usesAddedWeight } from '../lib/measure'
+import {
+  applyRecommendation,
+  formatRecommendation,
+  isRecommendationApplied,
+  type Recommendation,
+} from '../lib/recommend'
 import {
   addSet,
   completeSet,
@@ -37,19 +42,13 @@ interface ExerciseCardProps {
   aiSuggestion?: AiExerciseSuggestion | null
 }
 
-/** "60×8" 또는 무게가 없으면 "8회" */
-function shortSet(s: Pick<SetEntry, 'weightKg' | 'reps'>): string {
-  const reps = s.reps ?? 0
-  return s.weightKg ? `${formatKg(s.weightKg)}×${reps}` : `${reps}회`
-}
-
 /** 웜업은 W, 본 세트는 1부터 센다. */
 function setLabels(sets: SetEntry[]): string[] {
   let n = 0
   return sets.map((s) => (s.isWarmup ? 'W' : String(++n)))
 }
 
-/** 목표 횟수로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null */
+/** 목표 횟수(시간 종목은 목표 시간)로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null */
 function knownTarget(item: WorkoutItem): number | null {
   const v = item.we.targetReps ?? item.exercise?.targetReps
   return typeof v === 'number' && v > 0 ? v : null
@@ -73,6 +72,9 @@ export function ExerciseCard({
   const labels = setLabels(sets)
   const target = mode === 'active' ? knownTarget(item) : null
   const note = mode === 'active' ? (exercise?.note?.trim() ?? '') : ''
+  // 시간 종목은 횟수 대신 버틴 시간(초)을 적고, 맨몸 종목의 무게는 몸에 더한 무게다(비우면 맨몸).
+  const timed = isTimed(exercise)
+  const addedWeight = usesAddedWeight(exercise)
   const columns = mode === 'active' ? 'grid-cols-[3rem_1fr_1fr_3rem]' : 'grid-cols-[3rem_1fr_1fr]'
 
   // 옮긴 카드가 화면 밖으로 나가면 따라가서, 이어서 더 옮길 수 있게 한다.
@@ -121,11 +123,13 @@ export function ExerciseCard({
         {exercise && (
           <p className="text-sm text-muted">
             {bodyPartLabel(exercise.bodyPart)} · {equipmentLabel(exercise.equipment)}
-            {target !== null && <> · 목표 {target}회</>}
+            {target !== null && <> · 목표 {formatTarget(exercise, target)}</>}
           </p>
         )}
         {mode === 'active' && lastSets.length > 0 && (
-          <p className="mt-0.5 truncate text-sm text-muted">지난번 {lastSets.map(shortSet).join(' · ')}</p>
+          <p className="mt-0.5 truncate text-sm text-muted">
+            지난번 {lastSets.map((s) => formatSetShort(s, { addedWeight })).join(' · ')}
+          </p>
         )}
         {/* 종목 메모(시트 높이, 그립 등). 여기서는 보기만 하고 종목 상세에서 고친다. */}
         {note !== '' && (
@@ -138,16 +142,29 @@ export function ExerciseCard({
 
       {mode === 'active' &&
         (aiSuggestion ? (
-          <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={aiSuggestion} variant="ai" />
+          <RecommendationBar
+            workoutExerciseId={we.id}
+            sets={sets}
+            recommendation={aiSuggestion}
+            addedWeight={addedWeight}
+            variant="ai"
+          />
         ) : (
-          recommendation && <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={recommendation} />
+          recommendation && (
+            <RecommendationBar
+              workoutExerciseId={we.id}
+              sets={sets}
+              recommendation={recommendation}
+              addedWeight={addedWeight}
+            />
+          )
         ))}
 
       <div className="mt-2 grid gap-2">
         <div className={`grid ${columns} gap-2 text-center text-xs text-muted`}>
           <span>세트</span>
-          <span>무게</span>
-          <span>횟수</span>
+          <span>{addedWeight ? '추가 무게' : '무게'}</span>
+          <span>{timed ? '시간' : '횟수'}</span>
           {mode === 'active' && <span>완료</span>}
         </div>
         {sets.map((set, i) => (
@@ -157,8 +174,10 @@ export function ExerciseCard({
             label={labels[i]}
             mode={mode}
             columns={columns}
+            timed={timed}
+            addedWeight={addedWeight}
             onDone={onSetDone}
-            recordKinds={records.filter((r) => r.setId === set.id).map((r) => r.kind)}
+            recordLabels={records.filter((r) => r.setId === set.id).map((r) => recordLabel(r.kind, exercise))}
           />
         ))}
       </div>
@@ -224,7 +243,9 @@ function MoveButton({ direction, disabled, onClick }: MoveButtonProps) {
 interface RecommendationBarProps {
   workoutExerciseId: string
   sets: SetEntry[]
-  recommendation: Pick<Recommendation, 'weightKg' | 'reps' | 'reason' | 'fromWeightKg'>
+  recommendation: Pick<Recommendation, 'weightKg' | 'reps' | 'reason' | 'fromWeightKg' | 'durationSec'>
+  /** 맨몸 종목인지. 무게를 "+10kg"처럼 추가 무게로 보여 주고, 맨몸 세트와 추가 무게 세트를 나눠 채운다. */
+  addedWeight: boolean
   /** rule: 앱의 규칙 추천, ai: Claude의 추천 */
   variant?: 'rule' | 'ai'
 }
@@ -233,10 +254,16 @@ interface RecommendationBarProps {
  * 다음 무게 추천 한 줄. "적용"을 누르면 아직 완료하지 않은 본 세트에 추천 값을 채운다(자동으로 바꾸지 않는다).
  * 버튼 폭을 고정해서 "적용"과 "적용됨"이 바뀌어도 아래 세트 줄이 움직이지 않게 한다.
  */
-function RecommendationBar({ workoutExerciseId, sets, recommendation: rec, variant = 'rule' }: RecommendationBarProps) {
-  const applied = isRecommendationApplied(sets, rec)
+function RecommendationBar({
+  workoutExerciseId,
+  sets,
+  recommendation: rec,
+  addedWeight,
+  variant = 'rule',
+}: RecommendationBarProps) {
+  const applied = isRecommendationApplied(sets, rec, { addedWeight })
   const hasPending = sets.some((s) => !s.isDone && !s.isWarmup)
-  const value = rec.weightKg === null ? `${rec.reps}회` : `${formatKg(rec.weightKg)}kg × ${rec.reps}`
+  const value = formatRecommendation(rec, { addedWeight })
   const ai = variant === 'ai'
 
   return (
@@ -262,7 +289,7 @@ function RecommendationBar({ workoutExerciseId, sets, recommendation: rec, varia
       <button
         type="button"
         disabled={applied || !hasPending}
-        onClick={() => void applyRecommendation(workoutExerciseId, rec)}
+        onClick={() => void applyRecommendation(workoutExerciseId, rec, { addedWeight })}
         aria-label={applied ? '추천 적용됨' : `추천 ${value} 적용`}
         className={`flex h-11 w-[4.75rem] shrink-0 items-center justify-center gap-0.5 rounded-lg text-[15px] font-bold ${
           applied ? 'text-accent' : 'bg-accent text-on-accent active:opacity-80 disabled:opacity-40'
@@ -280,13 +307,18 @@ interface SetRowProps {
   label: string
   mode: 'active' | 'history'
   columns: string
+  /** 시간 종목이면 횟수 칸 대신 시간(초) 칸을 둔다. */
+  timed: boolean
+  /** 맨몸 종목이면 무게 칸이 추가 무게다. */
+  addedWeight: boolean
   onDone?: () => void
-  /** 이 세트로 새로 세운 기록의 종류. 비어 있으면 PR 표시가 없다. */
-  recordKinds: RecordKind[]
+  /** 이 세트로 새로 세운 기록의 이름. 비어 있으면 PR 표시가 없다. */
+  recordLabels: string[]
 }
 
-function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps) {
-  const repsRef = useRef<HTMLInputElement>(null)
+function SetRow({ set, label, mode, columns, timed, addedWeight, onDone, recordLabels }: SetRowProps) {
+  // 횟수 칸(시간 종목이면 시간 칸)
+  const amountRef = useRef<HTMLInputElement>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [askDelete, setAskDelete] = useState(false)
   const done = mode === 'active' && set.isDone
@@ -317,23 +349,24 @@ function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps)
       void updateSet(set.id, { isDone: false })
       return
     }
-    if ((set.reps ?? 0) > 0) {
+    if (isSetEntered(set)) {
       void updateSet(set.id, { isDone: true })
       afterDone()
       return
     }
-    // 횟수가 없으면 완료로 표시하지 않고 횟수 칸으로 보낸다.
-    repsRef.current?.focus()
-    // 다만 방금 친 횟수가 아직 화면까지 돌아오지 않았을 수 있으니, 저장된 값으로 한 번 더 확인한다.
+    // 횟수(시간 종목이면 시간)가 없으면 완료로 표시하지 않고 그 칸으로 보낸다.
+    amountRef.current?.focus()
+    // 다만 방금 친 값이 아직 화면까지 돌아오지 않았을 수 있으니, 저장된 값으로 한 번 더 확인한다.
     void completeSet(set.id).then((ok) => {
       if (ok) afterDone()
     })
   }
 
-  const changeReps = (reps: number | null) => {
-    // 운동 중에 횟수를 지우면 완료 표시도 함께 푼다.
-    const clearsDone = mode === 'active' && set.isDone && (reps ?? 0) <= 0
-    void updateSet(set.id, clearsDone ? { reps, isDone: false } : { reps })
+  const changeAmount = (value: number | null) => {
+    const amount = timed ? { durationSec: value } : { reps: value }
+    // 운동 중에 횟수(시간)를 지우면 완료 표시도 함께 푼다.
+    const clearsDone = mode === 'active' && set.isDone && (value ?? 0) <= 0
+    void updateSet(set.id, clearsDone ? { ...amount, isDone: false } : amount)
   }
 
   return (
@@ -359,24 +392,24 @@ function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps)
           )}
         </button>
         {/* 자리를 차지하지 않게 겹쳐 그려서, 표시가 생기거나 사라져도 세트 줄이 움직이지 않는다. */}
-        {recordKinds.length > 0 && (
-          <PrBadge kinds={recordKinds} className="pointer-events-none absolute -right-1.5 -top-1.5 shadow-sm" />
+        {recordLabels.length > 0 && (
+          <PrBadge labels={recordLabels} className="pointer-events-none absolute -right-1.5 -top-1.5 shadow-sm" />
         )}
       </div>
       <NumberField
         decimal
         unit="kg"
-        ariaLabel={`${label}세트 무게`}
+        ariaLabel={`${label}세트 ${addedWeight ? '추가 무게' : '무게'}`}
         value={set.weightKg}
         onChange={(weightKg) => void updateSet(set.id, { weightKg })}
         dimmed={done}
       />
       <NumberField
-        unit="회"
-        ariaLabel={`${label}세트 횟수`}
-        value={set.reps}
-        onChange={changeReps}
-        inputRef={repsRef}
+        unit={timed ? '초' : '회'}
+        ariaLabel={`${label}세트 ${timed ? '시간' : '횟수'}`}
+        value={timed ? (set.durationSec ?? null) : set.reps}
+        onChange={changeAmount}
+        inputRef={amountRef}
         dimmed={done}
       />
       {mode === 'active' && (
@@ -397,6 +430,7 @@ function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps)
         open={sheetOpen}
         set={set}
         label={label}
+        addedWeight={addedWeight}
         onClose={() => setSheetOpen(false)}
         onDelete={requestDelete}
       />

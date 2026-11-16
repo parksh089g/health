@@ -1,5 +1,6 @@
-import { db, type SetEntry, type Workout, type WorkoutExercise } from '../db'
+import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { formatKg, formatVolume } from './format'
+import { formatSeconds, formatWeight, isTimed, setSeconds, usesAddedWeight } from './measure'
 
 /**
  * 종목별 지난 기록을 꺼내고, 추정 1RM과 개인 기록(PR)을 계산한다. (2단계)
@@ -14,7 +15,7 @@ export interface ExerciseSession {
   sets: SetEntry[]
 }
 
-type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>
+type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'durationSec'>
 
 /** 추정 1RM을 계산할 때 믿을 만한 최대 횟수. 이보다 많이 한 세트는 1RM 계산에서 뺀다. */
 export const E1RM_MAX_REPS = 12
@@ -45,18 +46,30 @@ export interface SessionSummary {
   volume: number
   /** 맨몸 세트 중 가장 많은 횟수. 맨몸 세트가 없으면 null */
   maxReps: number | null
+  /** 시간 세트 중 가장 오래 버틴 시간(초). 시간 세트가 없으면 null */
+  maxDuration: number | null
+  /** 시간 세트의 시간 합(초). 시간 세트가 없으면 0 */
+  totalDuration: number
   /** 본 세트 수 */
   workingSetCount: number
 }
 
-/** 한 번의 기록을 요약한다. 완료한 본 세트만 본다. */
+/** 한 번의 기록을 요약한다. 완료한 본 세트만 본다. 시간 세트는 시간만 세고 볼륨과 추정 1RM에는 넣지 않는다. */
 export function summarizeSession(sets: SetLike[]): SessionSummary {
   const working = workingSets(sets)
   let topWeight: number | null = null
   let bestE1rm: number | null = null
   let maxReps: number | null = null
+  let maxDuration: number | null = null
+  let totalDuration = 0
   let volume = 0
   for (const s of working) {
+    const seconds = setSeconds(s)
+    if (seconds > 0) {
+      totalDuration += seconds
+      if (maxDuration === null || seconds > maxDuration) maxDuration = seconds
+      continue
+    }
     const reps = s.reps ?? 0
     if (reps <= 0) continue
     if (isWeighted(s)) {
@@ -71,7 +84,7 @@ export function summarizeSession(sets: SetLike[]): SessionSummary {
       maxReps = reps
     }
   }
-  return { topWeight, bestE1rm, volume, maxReps, workingSetCount: working.length }
+  return { topWeight, bestE1rm, volume, maxReps, maxDuration, totalDuration, workingSetCount: working.length }
 }
 
 /**
@@ -144,23 +157,48 @@ function buildSessions(
 /**
  * 개인 기록의 종류.
  * maxWeight: 가장 무거운 본 세트, bestE1rm: 가장 높은 추정 1RM(12회 이하 세트),
- * maxReps: 맨몸 세트의 가장 많은 횟수, sessionVolume: 한 번의 운동에서 이 종목의 가장 큰 볼륨.
+ * maxReps: 맨몸 세트의 가장 많은 횟수, sessionVolume: 한 번의 운동에서 이 종목의 가장 큰 볼륨,
+ * maxDuration: 시간 세트의 가장 오래 버틴 시간.
  */
-export type RecordKind = 'maxWeight' | 'bestE1rm' | 'maxReps' | 'sessionVolume'
+export type RecordKind = 'maxWeight' | 'bestE1rm' | 'maxReps' | 'sessionVolume' | 'maxDuration'
 
 export const RECORD_LABELS: Record<RecordKind, string> = {
   maxWeight: '최고 중량',
   bestE1rm: '추정 1RM',
   maxReps: '최다 횟수',
   sessionVolume: '최고 볼륨',
+  maxDuration: '최장 시간',
 }
 
-/** 기록 값을 화면에 쓰는 글자로. "105kg", "80.5kg"(추정 1RM은 소수 첫째 자리), "12회", "1,530kg" */
-export function formatRecordValue(kind: RecordKind, value: number): string {
+/** 기록 종류를 정할 때 보는 종목 정보. 종목을 모르면(지워진 종목) 세트에 있는 대로 모두 센다. */
+export type RecordExercise = Pick<Exercise, 'equipment' | 'measure'> | null | undefined
+
+/**
+ * 이 종목에서 세는 기록의 종류.
+ * 시간 종목은 최장 시간만, 맨몸 종목은 맨몸 최다 횟수와 최고 추가 무게만 센다
+ * (체중을 모르니 추가 무게만으로 낸 추정 1RM과 볼륨은 기록으로 삼지 않는다).
+ */
+export function recordKindsFor(exercise: RecordExercise): RecordKind[] {
+  if (isTimed(exercise)) return ['maxDuration']
+  if (usesAddedWeight(exercise)) return ['maxWeight', 'maxReps']
+  return ['maxWeight', 'bestE1rm', 'maxReps', 'sessionVolume']
+}
+
+/** 기록의 이름. 맨몸 종목의 최고 중량은 "최고 추가 무게" */
+export function recordLabel(kind: RecordKind, exercise?: RecordExercise): string {
+  return kind === 'maxWeight' && usesAddedWeight(exercise) ? '최고 추가 무게' : RECORD_LABELS[kind]
+}
+
+/**
+ * 기록 값을 화면에 쓰는 글자로. "105kg", "80.5kg"(추정 1RM은 소수 첫째 자리), "12회", "1,530kg", "90초".
+ * 맨몸 종목의 최고 추가 무게는 "+10kg"
+ */
+export function formatRecordValue(kind: RecordKind, value: number, exercise?: RecordExercise): string {
   if (kind === 'maxReps') return `${Math.round(value)}회`
+  if (kind === 'maxDuration') return formatSeconds(value)
   if (kind === 'sessionVolume') return `${formatVolume(value)}kg`
   if (kind === 'bestE1rm') return `${formatKg(Math.round(value * 10) / 10)}kg`
-  return `${formatKg(value)}kg`
+  return formatWeight(value, usesAddedWeight(exercise))
 }
 
 export interface RecordEntry {
@@ -178,10 +216,16 @@ export type ExerciseRecords = Partial<Record<RecordKind, RecordEntry>>
 /** 같은 값으로 볼 차이(소수 계산 오차) */
 const EPSILON = 1e-6
 
-/** 기록들에서 종목의 개인 기록을 계산한다. 같은 값이면 먼저 세운 기록을 남긴다. */
-export function computeRecords(sessions: ExerciseSession[]): ExerciseRecords {
+/**
+ * 기록들에서 종목의 개인 기록을 계산한다. 같은 값이면 먼저 세운 기록을 남긴다.
+ * exercise를 주면 그 종목에서 세는 종류(recordKindsFor)만 남긴다.
+ */
+export function computeRecords(sessions: ExerciseSession[], exercise?: RecordExercise): ExerciseRecords {
   const records: ExerciseRecords = {}
+  const kinds = new Set(recordKindsFor(exercise))
   const consider = (kind: RecordKind, value: number, session: ExerciseSession, set?: SetEntry) => {
+    // 종목을 모르면 가리지 않는다.
+    if (exercise && !kinds.has(kind)) return
     if (!(value > 0)) return
     const cur = records[kind]
     if (cur && value <= cur.value + EPSILON) return
@@ -191,6 +235,11 @@ export function computeRecords(sessions: ExerciseSession[]): ExerciseRecords {
   for (const session of ordered) {
     let volume = 0
     for (const s of workingSets(session.sets)) {
+      const seconds = setSeconds(s)
+      if (seconds > 0) {
+        consider('maxDuration', seconds, session, s)
+        continue
+      }
       const reps = s.reps ?? 0
       if (reps <= 0) continue
       if (isWeighted(s)) {
@@ -225,14 +274,17 @@ export async function findNewRecords(workoutId: string): Promise<NewRecord[]> {
   const workout = await db.workouts.get(workoutId)
   if (!workout) return []
   const wes = await db.workoutExercises.where('workoutId').equals(workoutId).sortBy('order')
+  const exercises = await db.exercises.bulkGet(wes.map((we) => we.exerciseId))
   const result: NewRecord[] = []
-  for (const we of wes) {
+  for (const [i, we] of wes.entries()) {
+    const exercise = exercises[i]
     const sets = (await db.sets.where('workoutExerciseId').equals(we.id).sortBy('order')).filter((s) => s.isDone)
     if (sets.length === 0) continue
     const prior = await getExerciseSessions(we.exerciseId, { excludeWorkoutId: workoutId, before: workout.startedAt })
     if (prior.length === 0) continue
-    const before = computeRecords(prior)
-    const now = computeRecords([{ workout: { ...workout, endedAt: workout.endedAt ?? workout.startedAt }, we, sets }])
+    const before = computeRecords(prior, exercise)
+    const mineNow: ExerciseSession = { workout: { ...workout, endedAt: workout.endedAt ?? workout.startedAt }, we, sets }
+    const now = computeRecords([mineNow], exercise)
     for (const kind of Object.keys(RECORD_LABELS) as RecordKind[]) {
       const mine = now[kind]
       const old = before[kind]

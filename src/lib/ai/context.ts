@@ -2,15 +2,17 @@ import { db, type Exercise, type Routine, type SetEntry, type Workout } from '..
 import { BODY_PARTS, bodyPartLabel, equipmentLabel, incrementFor } from '../exercises'
 import { formatDuration, formatKg, formatVolume, toDateKey } from '../format'
 import {
-  RECORD_LABELS,
   findNewRecords,
   formatRecordValue,
   getExerciseSessions,
+  isWeighted,
+  recordLabel,
   summarizeSession,
   workingSets,
   type ExerciseSession,
 } from '../history'
-import { getRecommendation } from '../recommend'
+import { formatSeconds, formatTarget, formatWeight, isTimed, usesAddedWeight } from '../measure'
+import { formatRecommendation, getRecommendation } from '../recommend'
 import { getAiProfile } from '../settings'
 import { bodyPartSets, loadStatsData, weeklyTotals } from '../stats'
 import { profileLines } from './profile'
@@ -39,22 +41,30 @@ function dateLabel(ts: number): string {
 
 type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'> & Pick<Partial<SetEntry>, 'rpe' | 'durationSec'>
 
-/** "60kg×8", "10회", 시간으로 재는 세트는 "45초". 힘든 정도를 적었으면 "60kg×8(RPE 8.5)" */
-function setText(s: SetLike): string {
+/** 세트를 글로 쓸 때의 종목 정보. addedWeight: 맨몸 종목이라 무게가 추가 무게인지 */
+interface SetTextOptions {
+  addedWeight?: boolean
+}
+
+/**
+ * "60kg×8", "10회", 시간으로 재는 세트는 "45초". 힘든 정도를 적었으면 "60kg×8(RPE 8.5)".
+ * 맨몸 종목의 추가 무게는 "+10kg×8"
+ */
+function setText(s: SetLike, opts: SetTextOptions = {}): string {
   const seconds = typeof s.durationSec === 'number' && s.durationSec > 0 ? Math.round(s.durationSec) : null
   if (s.weightKg === null && s.reps === null && seconds === null) return '빈 세트'
   const weighted = (s.weightKg ?? 0) > 0
   const reps = s.reps === null ? '?' : String(s.reps)
-  const amount = seconds !== null ? `${seconds}초` : weighted ? reps : `${reps}회`
+  const amount = seconds !== null ? formatSeconds(seconds) : weighted ? reps : `${reps}회`
   const rpe = typeof s.rpe === 'number' && s.rpe >= 1 && s.rpe <= 10 ? `(RPE ${formatKg(s.rpe)})` : ''
-  return `${weighted ? `${formatKg(s.weightKg as number)}kg×` : ''}${amount}${rpe}`
+  return `${weighted ? `${formatWeight(s.weightKg as number, opts.addedWeight)}×` : ''}${amount}${rpe}`
 }
 
 /** 완료한 세트를 "웜업 40kg×10 / 60kg×8, 60kg×8, 62.5kg×6"처럼 */
-export function describeDoneSets(sets: SetLike[]): string {
+export function describeDoneSets(sets: SetLike[], opts: SetTextOptions = {}): string {
   const done = sets.filter((s) => s.isDone)
-  const warm = done.filter((s) => s.isWarmup).map(setText)
-  const work = done.filter((s) => !s.isWarmup).map(setText)
+  const warm = done.filter((s) => s.isWarmup).map((s) => setText(s, opts))
+  const work = done.filter((s) => !s.isWarmup).map((s) => setText(s, opts))
   const parts = []
   if (warm.length > 0) parts.push(`웜업 ${warm.join(', ')}`)
   parts.push(work.length > 0 ? work.join(', ') : '본 세트 없음')
@@ -62,18 +72,20 @@ export function describeDoneSets(sets: SetLike[]): string {
 }
 
 /** 오늘 세트를 순서대로. 완료한 세트에는 "(완료)"를 붙인다. */
-export function describePlannedSets(sets: SetLike[]): string {
+export function describePlannedSets(sets: SetLike[], opts: SetTextOptions = {}): string {
   if (sets.length === 0) return '세트 없음'
-  return sets.map((s) => `${s.isWarmup ? '웜업 ' : ''}${setText(s)}${s.isDone ? '(완료)' : ''}`).join(', ')
+  return sets.map((s) => `${s.isWarmup ? '웜업 ' : ''}${setText(s, opts)}${s.isDone ? '(완료)' : ''}`).join(', ')
 }
 
-function e1rmText(sets: SetLike[]): string {
+/** 추정 1RM. 맨몸 종목은 체중을 몰라 추가 무게만으로는 뜻이 없으므로 적지 않는다. */
+function e1rmText(sets: SetLike[], opts: SetTextOptions = {}): string {
+  if (opts.addedWeight) return ''
   const sum = summarizeSession(sets)
   return sum.bestE1rm === null ? '' : ` · 추정 1RM ${formatKg(Math.round(sum.bestE1rm * 10) / 10)}kg`
 }
 
-function sessionLine(s: ExerciseSession): string {
-  return `- ${dateLabel(s.workout.startedAt)}: ${describeDoneSets(s.sets)}${e1rmText(s.sets)}`
+function sessionLine(s: ExerciseSession, opts: SetTextOptions = {}): string {
+  return `- ${dateLabel(s.workout.startedAt)}: ${describeDoneSets(s.sets, opts)}${e1rmText(s.sets, opts)}`
 }
 
 function memoLines(workouts: Workout[], limit: number): string[] {
@@ -83,19 +95,30 @@ function memoLines(workouts: Workout[], limit: number): string[] {
     .map((w) => `- ${dateLabel(w.startedAt)}: ${w.memo.trim().replace(/\s+/g, ' ')}`)
 }
 
-/** 시간으로 재는 종목(플랭크 등)인지. 이런 종목은 횟수 추천을 받지 않는다. */
-const isTimed = (exercise: Pick<Exercise, 'measure'> | undefined) => exercise?.measure === 'time'
+/** 맨몸 종목에서 추가 무게를 쓴다고 알릴 때 머리말에 붙이는 글 */
+export const ADDED_WEIGHT_NOTE = '추가 무게 사용'
 
-function exerciseHeader(key: string, exercise: Exercise | undefined, target: number | null): string {
+/**
+ * 종목 머리말. 시간으로 재는 종목(플랭크 등)은 횟수 추천을 받지 않으므로 그렇게 적고, 목표 시간이 있으면 붙인다.
+ * addedWeight: 맨몸 종목인데 오늘 세트나 지난 기록에 추가 무게가 있는지. 있으면 무게 종목처럼 증량 단위를 알려 준다.
+ */
+function exerciseHeader(key: string, exercise: Exercise | undefined, target: number | null, addedWeight = false): string {
   if (!exercise) return `[${key}] 지워진 종목`
   const parts = [`${bodyPartLabel(exercise.bodyPart)}, ${equipmentLabel(exercise.equipment)}`]
   if (isTimed(exercise)) {
     parts.push('시간으로 재는 종목')
+    if (target !== null) parts.push(`목표 ${formatTarget(exercise, target)}`)
   } else {
+    if (addedWeight) parts.push(ADDED_WEIGHT_NOTE)
     parts.push(target === null ? '목표 횟수 정하지 않음' : `목표 ${target}회`)
-    if (exercise.equipment !== 'bodyweight') parts.push(`증량 단위 ${formatKg(incrementFor(exercise))}kg`)
+    if (!usesAddedWeight(exercise) || addedWeight) parts.push(`증량 단위 ${formatKg(incrementFor(exercise))}kg`)
   }
   return `[${key}] ${exercise.name} (${parts.join(' · ')})`
+}
+
+/** 완료 여부와 상관없이, 무게를 단 본 세트가 하나라도 있는지 */
+function hasWeightedSet(sets: Pick<SetEntry, 'weightKg' | 'isWarmup'>[]): boolean {
+  return sets.some((s) => !s.isWarmup && isWeighted(s))
 }
 
 /** 종목에 적어 둔 메모(시트 높이, 그립 같은 세팅). 없으면 빈 글. */
@@ -144,7 +167,8 @@ function routineLines(routines: Routine[], exercises: Map<string, Exercise>): st
   return routines.map((r) => {
     const names = r.items.map((it) => {
       const ex = exercises.get(it.exerciseId)
-      return `${ex?.name ?? '지워진 종목'} ${it.sets}세트${it.reps ? `×${it.reps}회` : ''}`
+      // 시간 종목이면 루틴의 reps가 목표 시간(초)이다.
+      return `${ex?.name ?? '지워진 종목'} ${it.sets}세트${it.reps ? `×${formatTarget(ex, it.reps)}` : ''}`
     })
     return `- ${r.name}: ${names.join(', ')}`
   })
@@ -158,6 +182,8 @@ export interface WorkoutContextItem {
   /** 적용할 때 바꿀 세트의 무게: 규칙 추천이 본 지난번 최고 무게, 없으면 오늘 세트 중 가장 무거운 무게 */
   fromWeightKg: number | null
   bodyweight: boolean
+  /** 맨몸 종목인데 오늘 세트나 지난 기록에 추가 무게가 있다. 이때만 맨몸 종목에도 무게 추천을 받는다. */
+  addedWeight: boolean
 }
 
 export interface WorkoutContext {
@@ -225,21 +251,23 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
     const target = we.targetReps ?? exercise?.targetReps ?? null
     const history = (await getExerciseSessions(we.exerciseId, { excludeWorkoutId: workoutId, before: workout.startedAt }))
       .slice(-WORKOUT_HISTORY_SESSIONS)
-    const rule = exercise && !timed ? await getRecommendation(we, exercise) : null
+    // 시간 종목에도 규칙 추천은 있으니 참고하라고 적어 준다(AI의 추천은 받지 않는다).
+    const rule = exercise ? await getRecommendation(we, exercise) : null
     const todayTop = Math.max(0, ...sets.filter((s) => !s.isWarmup).map((s) => s.weightKg ?? 0))
+    const bodyweight = usesAddedWeight(exercise)
+    const textOpts = { addedWeight: bodyweight }
+    // 맨몸 종목은 오늘 세트나 받은 지난 기록에 추가 무게가 있을 때만 무게 추천을 받는다.
+    const addedWeight = bodyweight && !timed && (hasWeightedSet(sets) || history.some((s) => hasWeightedSet(s.sets)))
 
-    lines.push('', exerciseHeader(key, exercise, target))
+    lines.push('', exerciseHeader(key, exercise, target, addedWeight))
     const note = noteText(exercise)
     if (note !== '') lines.push(`  종목 메모: ${note}`)
-    lines.push(`  오늘 세트: ${describePlannedSets(sets)}`)
-    if (rule) {
-      const value = rule.weightKg === null ? `${rule.reps}회` : `${formatKg(rule.weightKg)}kg × ${rule.reps}`
-      lines.push(`  앱의 규칙 추천: ${value} (${rule.reason})`)
-    }
+    lines.push(`  오늘 세트: ${describePlannedSets(sets, textOpts)}`)
+    if (rule) lines.push(`  앱의 규칙 추천: ${formatRecommendation(rule, textOpts)} (${rule.reason})`)
     if (history.length === 0) {
       lines.push('  지난 기록: 없음(처음 하는 종목)')
     } else {
-      lines.push('  지난 기록(오래된 것부터):', ...history.map((s) => `  ${sessionLine(s)}`))
+      lines.push('  지난 기록(오래된 것부터):', ...history.map((s) => `  ${sessionLine(s, textOpts)}`))
     }
     if (timed) continue
 
@@ -247,7 +275,8 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
       key,
       workoutExerciseId: we.id,
       fromWeightKg: applyFromWeight(sets, rule?.fromWeightKg ?? null, todayTop),
-      bodyweight: exercise?.equipment === 'bodyweight',
+      bodyweight,
+      addedWeight,
     })
   }
   return { prompt: lines.join('\n'), items }
@@ -291,15 +320,16 @@ export async function buildReviewContext(now: number = Date.now()): Promise<stri
   for (const { id, sessions } of recentByExercise) {
     const ex = data.exercises.get(id)
     const all = data.sessionsByExercise.get(id) ?? []
-    const target = ex?.targetReps ? ` · 목표 ${ex.targetReps}회` : ''
+    const target = ex?.targetReps ? ` · 목표 ${formatTarget(ex, ex.targetReps)}` : ''
+    const textOpts = { addedWeight: usesAddedWeight(ex) }
     lines.push(
       `${ex?.name ?? '지워진 종목'} (${ex ? bodyPartLabel(ex.bodyPart) : '기타'}${target}) · 최근 ${REVIEW_WEEKS}주 ${sessions.length}회, 전체 ${all.length}회`,
     )
     const note = noteText(ex)
     if (note !== '') lines.push(`  종목 메모: ${note}`)
     const first = sessions[0]
-    if (sessions.length > 3) lines.push(`  ${sessionLine(first)}`, '  …')
-    lines.push(...sessions.slice(-3).map((s) => `  ${sessionLine(s)}`))
+    if (sessions.length > 3) lines.push(`  ${sessionLine(first, textOpts)}`, '  …')
+    lines.push(...sessions.slice(-3).map((s) => `  ${sessionLine(s, textOpts)}`))
   }
 
   const memos = memoLines(
@@ -334,19 +364,25 @@ export async function buildFeedbackContext(workoutId: string, now: number = Date
     const history = (await getExerciseSessions(we.exerciseId, { excludeWorkoutId: workoutId, before: workout.startedAt }))
       .slice(-FEEDBACK_HISTORY_SESSIONS)
 
-    blocks.push('', exerciseHeader(String(++count), exercise, we.targetReps ?? exercise?.targetReps ?? null))
+    const textOpts = { addedWeight: usesAddedWeight(exercise) }
+    const addedWeight = textOpts.addedWeight && (hasWeightedSet(sets) || history.some((s) => hasWeightedSet(s.sets)))
+    const target = we.targetReps ?? exercise?.targetReps ?? null
+    blocks.push('', exerciseHeader(String(++count), exercise, target, addedWeight))
     const note = noteText(exercise)
     if (note !== '') blocks.push(`  종목 메모: ${note}`)
-    blocks.push(`  이번 운동: ${describeDoneSets(sets)}${e1rmText(sets)}`)
+    blocks.push(`  이번 운동: ${describeDoneSets(sets, textOpts)}${e1rmText(sets, textOpts)}`)
     const mine = records.filter((r) => r.exerciseId === we.exerciseId)
     if (mine.length > 0) {
-      const text = mine.map((r) => `${RECORD_LABELS[r.kind]} ${formatRecordValue(r.kind, r.value)}(이전 ${formatRecordValue(r.kind, r.previous)})`)
+      const text = mine.map(
+        (r) =>
+          `${recordLabel(r.kind, exercise)} ${formatRecordValue(r.kind, r.value, exercise)}(이전 ${formatRecordValue(r.kind, r.previous, exercise)})`,
+      )
       blocks.push(`  이번에 세운 새 기록: ${text.join(', ')}`)
     }
     if (history.length === 0) {
       blocks.push('  지난 기록: 없음(처음 한 종목)')
     } else {
-      blocks.push('  지난 기록(오래된 것부터):', ...history.map((s) => `  ${sessionLine(s)}`))
+      blocks.push('  지난 기록(오래된 것부터):', ...history.map((s) => `  ${sessionLine(s, textOpts)}`))
     }
   }
   if (allSets.length === 0) return null
@@ -424,7 +460,9 @@ export async function buildRoutineContext(request: string, now: number = Date.no
     if (timed) parts.push('시간으로 재는 종목')
     const lastSets = workingSets(recent.at(-1)?.sets ?? [])
     if (recent.length > 0) {
-      parts.push(`최근 ${REVIEW_WEEKS}주 ${recent.length}회${lastSets.length > 0 ? `, 마지막 ${lastSets.map(setText).join(', ')}` : ''}`)
+      const textOpts = { addedWeight: usesAddedWeight(ex) }
+      const lastText = lastSets.map((s) => setText(s, textOpts)).join(', ')
+      parts.push(`최근 ${REVIEW_WEEKS}주 ${recent.length}회${lastSets.length > 0 ? `, 마지막 ${lastText}` : ''}`)
     }
     const note = noteText(ex)
     if (note !== '') parts.push(`메모: ${note}`)

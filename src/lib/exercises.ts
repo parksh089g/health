@@ -1,6 +1,7 @@
 import { db, type BodyPart, type Equipment, type Exercise } from '../db'
 import { SEED_EXERCISES } from '../seed'
 import { newId } from './id'
+import { isTimed, measureOf, TARGET_SECONDS_RANGE, type Measure } from './measure'
 import { REST_RANGE, isRestSeconds } from './settings'
 
 export const BODY_PARTS: { key: BodyPart; label: string }[] = [
@@ -28,6 +29,12 @@ export function bodyPartLabel(key: BodyPart): string {
 
 export function equipmentLabel(key: Equipment): string {
   return EQUIPMENT.find((e) => e.key === key)?.label ?? '기타'
+}
+
+/** 종목 이름 아래에 붙이는 한 줄. "가슴 · 바벨", 시간 종목은 "코어 · 맨몸 · 시간 종목" */
+export function exerciseKindText(exercise: Pick<Exercise, 'bodyPart' | 'equipment' | 'measure'>): string {
+  const kind = `${bodyPartLabel(exercise.bodyPart)} · ${equipmentLabel(exercise.equipment)}`
+  return isTimed(exercise) ? `${kind} · 시간 종목` : kind
 }
 
 /** 이름 비교용: 띄어쓰기와 대소문자를 무시한다. "스티프데드리프트"와 "스티프 데드리프트"는 같은 종목이다. */
@@ -62,7 +69,12 @@ export interface ExerciseInput {
   name: string
   bodyPart: BodyPart
   equipment: Equipment
+  /** 세트를 횟수로 잴지 시간으로 잴지. 주지 않으면 새 종목은 횟수, 고칠 때는 그대로 둔다. */
+  measure?: Measure
 }
+
+/** 기록이 있는 종목의 재는 방법을 바꾸려 할 때의 안내 */
+export const MEASURE_LOCKED_MESSAGE = '기록이 있는 종목은 횟수와 시간을 바꿀 수 없습니다.'
 
 /** 이름의 앞뒤와 중간의 남는 공백을 정리하고 확인한다. */
 function cleanName(raw: string): string {
@@ -87,26 +99,32 @@ export async function addCustomExercise(input: ExerciseInput): Promise<string> {
       return same.id
     }
     const id = newId()
-    await db.exercises.add({
+    const exercise: Exercise = {
       id,
       name,
       bodyPart: input.bodyPart,
       equipment: input.equipment,
       isCustom: true,
       createdAt: Date.now(),
-    })
+    }
+    // 횟수 종목은 칸을 비워 둔다(없으면 횟수).
+    if (input.measure === 'time') exercise.measure = 'time'
+    await db.exercises.add(exercise)
     return id
   })
 }
 
 /**
- * 내 종목의 이름, 부위, 기구를 바꾼다. 기록은 종목 id를 가리키므로 그대로 따라온다.
+ * 내 종목의 이름, 부위, 기구, 재는 방법(횟수/시간)을 바꾼다. 기록은 종목 id를 가리키므로 그대로 따라온다.
  * 다른 종목과 이름이 같으면(띄어쓰기, 대소문자 무시. 숨긴 종목 포함) 오류를 던진다.
+ *
+ * 재는 방법은 이 종목을 한 운동이 하나도 없을 때만 바꿀 수 있다(이미 적은 횟수나 시간이 뜻을 잃지 않게).
+ * 바꾸면 목표 값의 단위도 달라지므로 종목의 목표와 루틴에 정해 둔 목표는 지운다.
  */
 export async function updateCustomExercise(exerciseId: string, input: ExerciseInput): Promise<void> {
   const name = cleanName(input.name)
 
-  await db.transaction('rw', db.exercises, async () => {
+  await db.transaction('rw', [db.exercises, db.workoutExercises, db.routines], async () => {
     const all = await db.exercises.toArray()
     const exercise = all.find((e) => e.id === exerciseId)
     if (!exercise) throw new Error('종목을 찾을 수 없습니다.')
@@ -115,7 +133,20 @@ export async function updateCustomExercise(exerciseId: string, input: ExerciseIn
     if (same) {
       throw new Error(same.archived ? '같은 이름의 숨긴 종목이 있습니다.' : '같은 이름의 종목이 이미 있습니다.')
     }
-    await db.exercises.update(exerciseId, { name, bodyPart: input.bodyPart, equipment: input.equipment })
+    const changes: Partial<Exercise> = { name, bodyPart: input.bodyPart, equipment: input.equipment }
+    if (input.measure !== undefined && input.measure !== measureOf(exercise)) {
+      const records = await db.workoutExercises.where('exerciseId').equals(exerciseId).count()
+      if (records > 0) throw new Error(MEASURE_LOCKED_MESSAGE)
+      changes.measure = input.measure
+      changes.targetReps = null
+      // 루틴의 고친 시각은 그대로 둔다(홈에서 루틴 순서가 바뀌지 않게).
+      for (const routine of await db.routines.toArray()) {
+        if (!routine.items.some((item) => item.exerciseId === exerciseId && item.reps !== null)) continue
+        const items = routine.items.map((item) => (item.exerciseId === exerciseId ? { ...item, reps: null } : item))
+        await db.routines.update(routine.id, { items })
+      }
+    }
+    await db.exercises.update(exerciseId, changes)
   })
 }
 
@@ -215,8 +246,19 @@ export const TARGET_REPS_RANGE = { min: 1, max: 100 } as const
 /** 증량 단위로 받을 수 있는 범위(kg) */
 export const INCREMENT_RANGE = { min: 0.25, max: 50 } as const
 
+/** 목표 값(횟수 종목은 횟수, 시간 종목은 초)으로 받을 수 있는 범위 */
+export function targetRange(exercise: Pick<Exercise, 'measure'> | null | undefined): { min: number; max: number } {
+  return isTimed(exercise) ? TARGET_SECONDS_RANGE : TARGET_REPS_RANGE
+}
+
+/** 목표 값이 범위를 벗어났을 때의 안내. "목표 횟수는 1~100회로", "목표 시간은 1~600초로" */
+export function targetRangeText(exercise: Pick<Exercise, 'measure'> | null | undefined): string {
+  const { min, max } = targetRange(exercise)
+  return isTimed(exercise) ? `목표 시간은 ${min}~${max}초로` : `목표 횟수는 ${min}~${max}회로`
+}
+
 /**
- * 종목의 목표 횟수와 증량 단위를 바꾼다. null을 주면 정한 값을 지우고 기본값으로 돌아간다.
+ * 종목의 목표 횟수(시간 종목은 목표 시간)와 증량 단위를 바꾼다. null을 주면 정한 값을 지우고 기본값으로 돌아간다.
  * 범위를 벗어나면 오류를 던진다.
  */
 export async function updateExerciseGoal(
@@ -226,8 +268,11 @@ export async function updateExerciseGoal(
   const changes: Partial<Pick<Exercise, 'targetReps' | 'incrementKg'>> = {}
   if (patch.targetReps !== undefined) {
     const v = patch.targetReps
-    if (v !== null && !(Number.isInteger(v) && v >= TARGET_REPS_RANGE.min && v <= TARGET_REPS_RANGE.max)) {
-      throw new Error(`목표 횟수는 ${TARGET_REPS_RANGE.min}~${TARGET_REPS_RANGE.max}회로 정해 주세요.`)
+    // 시간 종목이면 목표 시간(초)이라 받는 범위가 다르다.
+    const exercise = v === null ? undefined : await db.exercises.get(exerciseId)
+    const range = targetRange(exercise)
+    if (v !== null && !(Number.isInteger(v) && v >= range.min && v <= range.max)) {
+      throw new Error(`${targetRangeText(exercise)} 정해 주세요.`)
     }
     changes.targetReps = v
   }

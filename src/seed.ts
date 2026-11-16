@@ -5,12 +5,15 @@ export interface SeedExercise {
   name: string
   bodyPart: BodyPart
   equipment: Equipment
+  /** 시간으로 재는 종목(플랭크 등)이면 'time'. 없으면 횟수 */
+  measure?: 'time'
 }
 
 /**
  * 기본 종목. id는 바꾸지 않는다(기록이 이 id를 가리킨다).
  * 새 종목을 여기에 더하면 앱을 열 때 자동으로 추가된다. 같은 이름의 내 종목이 이미 있으면 그 종목을 그대로 쓴다.
- * 무게를 덜어 주는 종목(어시스트 풀업 머신 등)과 시간으로 재는 종목(플랭크 등)은 추천과 기록 계산이 맞지 않아 넣지 않는다.
+ * 시간으로 재는 종목(플랭크 등)은 measure를 'time'으로 둔다. 세트에 횟수 대신 버틴 시간(초)을 적는다.
+ * 무게를 덜어 주는 종목(어시스트 풀업 머신 등)은 추천과 기록 계산이 맞지 않아 넣지 않는다.
  */
 export const SEED_EXERCISES: SeedExercise[] = [
   // 가슴
@@ -41,6 +44,7 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:back-extension', name: '백 익스텐션', bodyPart: 'back', equipment: 'bodyweight' },
   { id: 'seed:barbell-shrug', name: '바벨 슈러그', bodyPart: 'back', equipment: 'barbell' },
   { id: 'seed:dumbbell-shrug', name: '덤벨 슈러그', bodyPart: 'back', equipment: 'dumbbell' },
+  { id: 'seed:dead-hang', name: '매달리기', bodyPart: 'back', equipment: 'bodyweight', measure: 'time' },
   // 하체
   { id: 'seed:squat', name: '스쿼트', bodyPart: 'legs', equipment: 'barbell' },
   { id: 'seed:romanian-deadlift', name: '루마니안 데드리프트', bodyPart: 'legs', equipment: 'barbell' },
@@ -62,6 +66,7 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:hip-adduction', name: '힙 어덕션', bodyPart: 'legs', equipment: 'machine' },
   { id: 'seed:cable-glute-kickback', name: '케이블 글루트 킥백', bodyPart: 'legs', equipment: 'cable' },
   { id: 'seed:seated-calf-raise', name: '시티드 카프 레이즈', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:wall-sit', name: '월 싯', bodyPart: 'legs', equipment: 'bodyweight', measure: 'time' },
   // 어깨
   { id: 'seed:overhead-press', name: '오버헤드 프레스', bodyPart: 'shoulders', equipment: 'barbell' },
   { id: 'seed:dumbbell-shoulder-press', name: '덤벨 숄더 프레스', bodyPart: 'shoulders', equipment: 'dumbbell' },
@@ -97,4 +102,6 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:leg-raise', name: '레그 레이즈', bodyPart: 'core', equipment: 'bodyweight' },
   { id: 'seed:russian-twist', name: '러시안 트위스트', bodyPart: 'core', equipment: 'bodyweight' },
   { id: 'seed:ab-rollout', name: '앱 롤아웃', bodyPart: 'core', equipment: 'bodyweight' },
+  { id: 'seed:plank', name: '플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
+  { id: 'seed:side-plank', name: '사이드 플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
 ]

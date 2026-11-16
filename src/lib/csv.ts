@@ -4,6 +4,7 @@ import { formatTime, toDateKey } from './format'
 
 /**
  * 기록을 CSV(엑셀, 구글 시트에서 여는 표)로 내보낸다. 끝난 운동의 세트 하나가 한 줄이다.
+ * 횟수 종목은 횟수 칸에, 시간 종목은 시간(초) 칸에 값이 들어간다. 맨몸 종목의 중량은 추가 무게다.
  * 복원용이 아니라 보거나 옮겨 쓰기 위한 것이므로, 복원은 JSON 백업으로 한다.
  */
 
@@ -17,6 +18,7 @@ export const CSV_COLUMNS = [
   '웜업',
   '중량(kg)',
   '횟수',
+  '시간(초)',
   'RPE',
   '운동 메모',
 ] as const
@@ -75,6 +77,8 @@ export async function exportCsv(): Promise<string> {
             s.isWarmup ? '예' : '',
             s.weightKg,
             s.reps,
+            // 시간 종목(플랭크 등)의 버틴 시간. 횟수 종목은 비워 둔다.
+            s.durationSec,
             s.rpe,
             w.memo,
           ]),

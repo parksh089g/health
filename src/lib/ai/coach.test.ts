@@ -49,7 +49,8 @@ const BENCH = 'seed:bench-press'
 const PULL_UP = 'seed:pull-up'
 const SQUAT = 'seed:squat'
 const OHP = 'seed:overhead-press'
-const PLANK = 'custom:plank'
+const PLANK = 'seed:plank'
+const DIPS = 'seed:dips'
 const DAY = 24 * 60 * 60 * 1000
 const NOW = new Date(2026, 10, 16, 19, 0).getTime()
 const KEY = 'sk-ant-secret-1234'
@@ -96,18 +97,6 @@ const answer = (value: unknown, costUsd = 0.04) => ({
 })
 
 const PROFILE: AiProfile = { goal: 'hypertrophy', experience: 'intermediate', daysPerWeek: 4, notes: '왼쪽 어깨가 좋지 않음.\n머리 위로 미는 동작은 피함' }
-
-async function addPlank() {
-  await db.exercises.add({
-    id: PLANK,
-    name: '플랭크',
-    bodyPart: 'core',
-    equipment: 'bodyweight',
-    isCustom: true,
-    createdAt: 1,
-    measure: 'time',
-  })
-}
 
 beforeEach(async () => {
   await db.delete()
@@ -234,7 +223,6 @@ describe('더 넣는 기록', () => {
   })
 
   it('시간으로 재는 종목은 운동 추천을 받지 않고 기록만 보여 준다', async () => {
-    await addPlank()
     await record(NOW - 2 * DAY, { [PLANK]: [[null, null, { durationSec: 60 }]], [BENCH]: [[60, 8]] })
     const today = await record(
       NOW,
@@ -245,7 +233,69 @@ describe('더 넣는 기록', () => {
     expect(ctx.items.map((i) => [i.key, i.workoutExerciseId])).toEqual([['E1', today.weIds[BENCH]]])
     expect(ctx.prompt).toContain('[추천 안 함] 플랭크 (코어, 맨몸 · 시간으로 재는 종목)')
     expect(ctx.prompt).toContain('오늘 세트: 60초')
+    // 규칙 추천은 참고하라고 초로 적어 준다.
+    expect(ctx.prompt).toContain('앱의 규칙 추천: 65초 (지난번 최고 60초보다 5초 더 버텨 봐요)')
+    expect(ctx.prompt).toContain('- 2026-11-14(토): 60초')
     expect(ctx.prompt).toContain('[E1] 벤치프레스')
+  })
+
+  it('시간 종목의 목표는 초로 적는다', async () => {
+    await db.exercises.update(PLANK, { targetReps: 90 })
+    await record(NOW - 2 * DAY, { [PLANK]: [[10, null, { durationSec: 60 }]] })
+    const today = await record(NOW, { [PLANK]: [[null, null, { durationSec: 60, done: false }]] }, { finish: false })
+    const p = (await buildWorkoutContext(today.id, NOW)).prompt
+    expect(p).toContain('[추천 안 함] 플랭크 (코어, 맨몸 · 시간으로 재는 종목 · 목표 90초)')
+    expect(p).toContain('- 2026-11-14(토): +10kg×60초')
+    expect(p).not.toContain('추정 1RM')
+    expect((await buildReviewContext(NOW))!).toContain('플랭크 (코어 · 목표 90초)')
+  })
+
+  it('맨몸 종목의 추가 무게는 +로 적고, 추가 무게를 쓰는 종목만 무게 추천을 받는다', async () => {
+    await record(NOW - 2 * DAY, { [PULL_UP]: [[10, 5], [10, 5], [null, 8]], [DIPS]: [[null, 12], [null, 10]] })
+    const today = await record(
+      NOW,
+      { [PULL_UP]: [[10, 5, { done: false }], [null, 8, { done: false }]], [DIPS]: [[null, 12, { done: false }]] },
+      { finish: false },
+    )
+    const ctx = await buildWorkoutContext(today.id, NOW)
+    const p = ctx.prompt
+    expect(p).toContain('[E1] 풀업 (등, 맨몸 · 추가 무게 사용 · 목표 횟수 정하지 않음 · 증량 단위 2.5kg)')
+    expect(p).toContain('  오늘 세트: +10kg×5, 8회')
+    expect(p).toContain('  앱의 규칙 추천: +12.5kg × 5 (지난번 2세트 모두 5회를 채웠어요)')
+    expect(p).toContain('  - 2026-11-14(토): +10kg×5, +10kg×5, 8회')
+    // 맨몸으로만 하는 종목은 전과 같다. 추가 무게만으로 낸 추정 1RM은 적지 않는다.
+    expect(p).toContain('[E2] 딥스 (가슴, 맨몸 · 목표 횟수 정하지 않음)')
+    expect(p).toContain('  앱의 규칙 추천: 13회')
+    expect(p).not.toContain('추정 1RM')
+    expect(ctx.items).toEqual([
+      { key: 'E1', workoutExerciseId: today.weIds[PULL_UP], fromWeightKg: 10, bodyweight: true, addedWeight: true },
+      { key: 'E2', workoutExerciseId: today.weIds[DIPS], fromWeightKg: null, bodyweight: true, addedWeight: false },
+    ])
+    expect(WORKOUT_SYSTEM).toContain('"추가 무게 사용"')
+    expect(WORKOUT_SYSTEM).toContain('+10kg×8')
+  })
+
+  it('지난 기록에만 추가 무게가 있어도 무게 추천을 받는다', async () => {
+    await record(NOW - 9 * DAY, { [PULL_UP]: [[5, 6]] })
+    await record(NOW - 2 * DAY, { [PULL_UP]: [[null, 10]] })
+    const today = await record(NOW, { [PULL_UP]: [[null, 10, { done: false }]] }, { finish: false })
+    const ctx = await buildWorkoutContext(today.id, NOW)
+    expect(ctx.items).toMatchObject([{ bodyweight: true, addedWeight: true, fromWeightKg: null }])
+    expect(ctx.prompt).toContain('  앱의 규칙 추천: 11회')
+  })
+
+  it('피드백 글: 맨몸 종목과 시간 종목의 새 기록을 그 종목의 말로 적는다', async () => {
+    await record(NOW - 5 * DAY, { [PULL_UP]: [[10, 5], [null, 8]], [PLANK]: [[null, null, { durationSec: 60 }]] })
+    const done = await record(NOW - DAY, { [PULL_UP]: [[12.5, 5], [null, 9]], [PLANK]: [[null, null, { durationSec: 75 }]] })
+    const p = (await buildFeedbackContext(done.id, NOW))!
+    expect(p).toContain('[1] 풀업 (등, 맨몸 · 추가 무게 사용 · 목표 횟수 정하지 않음 · 증량 단위 2.5kg)')
+    expect(p).toContain('  이번 운동: +12.5kg×5, 9회')
+    expect(p).toContain('  이번에 세운 새 기록: 최고 추가 무게 +12.5kg(이전 +10kg), 최다 횟수 9회(이전 8회)')
+    expect(p).toContain('[2] 플랭크 (코어, 맨몸 · 시간으로 재는 종목)')
+    expect(p).toContain('  이번 운동: 75초')
+    expect(p).toContain('  이번에 세운 새 기록: 최장 시간 75초(이전 60초)')
+    // 시간 세트는 세트 수에는 들어가고 볼륨에는 들어가지 않는다.
+    expect(p).toContain('이 운동의 합계: 본 세트 3개, 볼륨 63kg')
   })
 })
 
@@ -364,7 +414,6 @@ describe('AI 루틴 만들기', () => {
   ]
 
   it('요청 글: 요청, 최근 훈련 요약, 고를 수 있는 종목을 담고 숨긴 종목은 뺀다', async () => {
-    await addPlank()
     await db.exercises.update(OHP, { archived: true })
     await db.exercises.update(SQUAT, { note: '하이바' })
     await record(NOW - 10 * DAY, { [SQUAT]: [[100, 5], [100, 5]], [OHP]: [[40, 8]] })

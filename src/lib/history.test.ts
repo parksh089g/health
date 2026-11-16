@@ -72,6 +72,8 @@ describe('추정 1RM과 요약', () => {
       bestE1rm: estimate1RM(70, 5),
       volume: 60 * 8 + 70 * 5 + 40 * 20,
       maxReps: null,
+      maxDuration: null,
+      totalDuration: 0,
       workingSetCount: 3,
     })
     expect(summarizeSession([s(null, 12), s(0, 15)])).toMatchObject({ topWeight: null, bestE1rm: null, volume: 0, maxReps: 15 })
@@ -199,7 +201,7 @@ describe('지난 세트로 틀 만들기', () => {
 
   it('목표 횟수를 종목 기록에 남기고, 같은 운동 다시 하기에도 따라간다', async () => {
     const id = await startWorkout(10_000)
-    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, () =>
+    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, db.exercises, () =>
       addExerciseWithPrefill(id, SQUAT, 0, { setCount: 5, targetReps: 5 }),
     )
     const detail = await loadWorkoutDetail(id)

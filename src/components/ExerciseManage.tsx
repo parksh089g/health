@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import type { Exercise } from '../db'
 import { getExerciseUsage, removalKind, removeExercise, restoreExercise, updateCustomExercise } from '../lib/exercises'
+import { measureOf } from '../lib/measure'
 import { Dialog } from './Dialog'
 import { ExerciseForm } from './ExerciseForm'
 
@@ -14,7 +15,7 @@ interface ExerciseManageProps {
 const BUTTON = 'h-11 min-w-0 flex-1 rounded-xl px-3 text-[15px] font-semibold active:opacity-70 disabled:opacity-40'
 
 /**
- * 종목 관리: 내 종목의 이름, 부위, 기구를 바꾸고, 종목을 지우거나 숨기고, 숨긴 종목을 다시 보이게 한다.
+ * 종목 관리: 내 종목의 이름, 부위, 기구, 재는 방법(횟수/시간)을 바꾸고, 종목을 지우거나 숨기고, 숨긴 종목을 다시 보이게 한다.
  * 기록이 없는 내 종목만 정말 지우고(되돌릴 수 없어 한 번 묻는다), 그 밖에는 숨긴다(언제든 되돌릴 수 있어 묻지 않는다).
  * 종목 상세와 종목 선택 목록이 함께 쓴다.
  */
@@ -40,7 +41,14 @@ export function ExerciseManage({ exercise, onRemoved }: ExerciseManageProps) {
         bare
         title="이름·부위·기구 바꾸기"
         submitLabel="저장"
-        initial={{ name: exercise.name, bodyPart: exercise.bodyPart, equipment: exercise.equipment }}
+        initial={{
+          name: exercise.name,
+          bodyPart: exercise.bodyPart,
+          equipment: exercise.equipment,
+          measure: measureOf(exercise),
+        }}
+        // 기록(진행 중인 운동 포함)이 있으면 횟수와 시간을 바꿀 수 없다. 세는 동안에도 잠가 둔다.
+        measureLocked={usage === undefined || usage.records > 0}
         onSubmit={async (input) => {
           await updateCustomExercise(exercise.id, input)
           setEditing(false)

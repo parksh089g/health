@@ -23,6 +23,7 @@ import * as routinesStats from './routines-stats.js'
 import * as smoke from './smoke.js'
 
 const SCENARIOS = { smoke, 'routines-stats': routinesStats, ai }
+SCENARIOS.measure = await import('./measure.js')
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SHOTS = path.join(ROOT, 'e2e', 'screenshots')
