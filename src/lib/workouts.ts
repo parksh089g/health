@@ -77,19 +77,54 @@ export async function getLastSets(exerciseId: string, excludeWorkoutId?: string)
   return []
 }
 
-async function addExerciseWithPrefill(workoutId: string, exerciseId: string, order: number): Promise<void> {
+export interface PrefillOptions {
+  /**
+   * 본 세트 수. 주면 지난 기록의 웜업 세트는 그대로 두고 본 세트를 이 개수에 맞춘다
+   * (모자라면 마지막 본 세트 값을 되풀이하고, 남으면 뒤를 버린다). 루틴으로 시작할 때 쓴다.
+   */
+  setCount?: number
+  /** 이 운동에서의 목표 횟수(WorkoutExercise.targetReps) */
+  targetReps?: number | null
+}
+
+type SetTemplate = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup'>
+
+const EMPTY_SET: SetTemplate = { weightKg: null, reps: null, isWarmup: false }
+
+/** 지난 세트로 새 세트의 틀을 만든다. */
+export function prefillTemplate(last: SetEntry[], setCount?: number): SetTemplate[] {
+  const toTemplate = (s: SetEntry): SetTemplate => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup })
+  if (setCount === undefined) {
+    return last.length > 0 ? last.map(toTemplate) : Array.from({ length: DEFAULT_SET_COUNT }, () => ({ ...EMPTY_SET }))
+  }
+  const warmups = last.filter((s) => s.isWarmup).map(toTemplate)
+  const working = last.filter((s) => !s.isWarmup).map(toTemplate)
+  const count = Math.max(1, Math.round(setCount))
+  const main = Array.from({ length: count }, (_, i) => ({ ...(working[i] ?? working.at(-1) ?? EMPTY_SET) }))
+  return [...warmups, ...main]
+}
+
+/**
+ * 운동에 종목 하나를 넣고 세트를 지난번 값으로 미리 채운다. 넣은 WorkoutExercise의 id를 돌려준다.
+ * 트랜잭션 안에서 불러야 한다(workoutExercises, sets, workouts 테이블).
+ */
+export async function addExerciseWithPrefill(
+  workoutId: string,
+  exerciseId: string,
+  order: number,
+  opts: PrefillOptions = {},
+): Promise<string> {
   const weId = newId()
-  await db.workoutExercises.add({ id: weId, workoutId, exerciseId, order, memo: '' })
+  const we: WorkoutExercise = { id: weId, workoutId, exerciseId, order, memo: '' }
+  if (opts.targetReps !== undefined) we.targetReps = opts.targetReps
+  await db.workoutExercises.add(we)
 
   const last = await getLastSets(exerciseId, workoutId)
-  const template =
-    last.length > 0
-      ? last.map((s) => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup }))
-      : Array.from({ length: DEFAULT_SET_COUNT }, () => ({ weightKg: null, reps: null, isWarmup: false }))
-
+  const template = prefillTemplate(last, opts.setCount)
   await db.sets.bulkAdd(
     template.map((t, i) => ({ id: newId(), workoutExerciseId: weId, order: i, ...t, isDone: false })),
   )
+  return weId
 }
 
 /**
@@ -239,7 +274,11 @@ export async function repeatWorkout(
     await db.workouts.add({ id, date: toDateKey(now), startedAt: now, endedAt: null, memo: '' })
     const source = await db.workoutExercises.where('workoutId').equals(sourceWorkoutId).sortBy('order')
     let order = 0
-    for (const we of source) await addExerciseWithPrefill(id, we.exerciseId, order++)
+    for (const we of source) {
+      // 목표 횟수(루틴에서 온 값)도 그대로 따라간다.
+      const opts: PrefillOptions = we.targetReps === undefined ? {} : { targetReps: we.targetReps }
+      await addExerciseWithPrefill(id, we.exerciseId, order++, opts)
+    }
     return { id, created: true }
   })
 }

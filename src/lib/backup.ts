@@ -1,9 +1,21 @@
-import { db, type Exercise, type SetEntry, type SettingRow, type Workout, type WorkoutExercise } from '../db'
+import {
+  db,
+  type Exercise,
+  type Routine,
+  type SetEntry,
+  type SettingRow,
+  type Workout,
+  type WorkoutExercise,
+} from '../db'
 import { toDateKey } from './format'
 import { SETTING_KEYS } from './settings'
 
 export const BACKUP_FORMAT = 'health-log-backup'
-export const BACKUP_VERSION = 1
+/**
+ * 백업 파일 형식의 버전.
+ * 1: MVP. 2: 루틴(routines)을 더했다. 1 파일도 그대로 읽는다(루틴은 빈 목록).
+ */
+export const BACKUP_VERSION = 2
 
 export interface BackupData {
   exercises: Exercise[]
@@ -11,6 +23,7 @@ export interface BackupData {
   workoutExercises: WorkoutExercise[]
   sets: SetEntry[]
   settings: SettingRow[]
+  routines: Routine[]
 }
 
 export interface BackupFile {
@@ -23,18 +36,23 @@ export interface BackupFile {
 
 /** 폰에 있는 모든 기록을 백업 파일 내용으로 만든다. */
 export async function exportBackup(now: Date = new Date()): Promise<BackupFile> {
-  return db.transaction('r', db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, async () => ({
-    format: BACKUP_FORMAT,
-    version: BACKUP_VERSION,
-    exportedAt: now.toISOString(),
-    data: {
-      exercises: await db.exercises.toArray(),
-      workouts: await db.workouts.toArray(),
-      workoutExercises: await db.workoutExercises.toArray(),
-      sets: await db.sets.toArray(),
-      settings: await db.settings.toArray(),
-    },
-  }))
+  return db.transaction(
+    'r',
+    [db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, db.routines],
+    async () => ({
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      exportedAt: now.toISOString(),
+      data: {
+        exercises: await db.exercises.toArray(),
+        workouts: await db.workouts.toArray(),
+        workoutExercises: await db.workoutExercises.toArray(),
+        sets: await db.sets.toArray(),
+        settings: await db.settings.toArray(),
+        routines: await db.routines.toArray(),
+      },
+    }),
+  )
 }
 
 export function backupFileName(now: Date = new Date()): string {
@@ -51,9 +69,17 @@ const isStr = (v: unknown): v is string => typeof v === 'string'
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isBool = (v: unknown): v is boolean => typeof v === 'boolean'
 const isNumOrNull = (v: unknown): v is number | null => v === null || isNum(v)
+/** 2단계에 더한 선택 필드: 없거나, null이거나, 숫자 */
+const isOptNum = (v: unknown): boolean => v === undefined || isNumOrNull(v)
+const isOptStr = (v: unknown): boolean => v === undefined || v === null || isStr(v)
 
-function list(data: Rec, key: keyof BackupData, check: (r: Rec) => boolean): Rec[] {
+function isRoutineItem(v: unknown): boolean {
+  return isRec(v) && isStr(v.exerciseId) && isNum(v.sets) && v.sets >= 1 && isNumOrNull(v.reps)
+}
+
+function list(data: Rec, key: keyof BackupData, check: (r: Rec) => boolean, optional = false): Rec[] {
   const v = data[key]
+  if (v === undefined && optional) return []
   if (!Array.isArray(v)) throw new Error(`백업 파일에 ${key} 목록이 없습니다.`)
   for (const row of v) {
     if (!isRec(row) || !check(row)) throw new Error(`백업 파일의 ${key} 항목 형식이 올바르지 않습니다.`)
@@ -83,17 +109,37 @@ export function parseBackup(text: string): BackupFile {
   const exercises = list(
     d,
     'exercises',
-    (r) => isStr(r.id) && isStr(r.name) && isStr(r.bodyPart) && isStr(r.equipment) && isBool(r.isCustom) && isNum(r.createdAt),
+    (r) =>
+      isStr(r.id) &&
+      isStr(r.name) &&
+      isStr(r.bodyPart) &&
+      isStr(r.equipment) &&
+      isBool(r.isCustom) &&
+      isNum(r.createdAt) &&
+      isOptNum(r.targetReps) &&
+      isOptNum(r.incrementKg),
   )
   const workouts = list(
     d,
     'workouts',
-    (r) => isStr(r.id) && isStr(r.date) && isNum(r.startedAt) && isNumOrNull(r.endedAt) && isStr(r.memo),
+    (r) =>
+      isStr(r.id) &&
+      isStr(r.date) &&
+      isNum(r.startedAt) &&
+      isNumOrNull(r.endedAt) &&
+      isStr(r.memo) &&
+      isOptStr(r.routineId),
   )
   const workoutExercises = list(
     d,
     'workoutExercises',
-    (r) => isStr(r.id) && isStr(r.workoutId) && isStr(r.exerciseId) && isNum(r.order) && isStr(r.memo),
+    (r) =>
+      isStr(r.id) &&
+      isStr(r.workoutId) &&
+      isStr(r.exerciseId) &&
+      isNum(r.order) &&
+      isStr(r.memo) &&
+      isOptNum(r.targetReps),
   )
   const sets = list(
     d,
@@ -108,6 +154,20 @@ export function parseBackup(text: string): BackupFile {
       isBool(r.isDone),
   )
   const settings = list(d, 'settings', (r) => isStr(r.key))
+  // 버전 1 백업에는 루틴이 없다.
+  const routines = list(
+    d,
+    'routines',
+    (r) =>
+      isStr(r.id) &&
+      isStr(r.name) &&
+      Array.isArray(r.items) &&
+      r.items.every(isRoutineItem) &&
+      isNum(r.createdAt) &&
+      isNum(r.updatedAt) &&
+      isNumOrNull(r.lastUsedAt),
+    raw.version < 2,
+  )
 
   return {
     format: BACKUP_FORMAT,
@@ -119,6 +179,7 @@ export function parseBackup(text: string): BackupFile {
       workoutExercises: workoutExercises as unknown as WorkoutExercise[],
       sets: sets as unknown as SetEntry[],
       settings: settings as unknown as SettingRow[],
+      routines: routines as unknown as Routine[],
     },
   }
 }
@@ -128,18 +189,21 @@ export async function importBackup(backup: BackupFile): Promise<void> {
   const { data } = backup
   const exportedAt = Date.parse(backup.exportedAt)
 
-  await db.transaction('rw', db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, async () => {
+  const tables = [db.exercises, db.workouts, db.workoutExercises, db.sets, db.settings, db.routines]
+  await db.transaction('rw', tables, async () => {
     await db.sets.clear()
     await db.workoutExercises.clear()
     await db.workouts.clear()
     await db.exercises.clear()
     await db.settings.clear()
+    await db.routines.clear()
 
     await db.exercises.bulkAdd(data.exercises)
     await db.workouts.bulkAdd(data.workouts)
     await db.workoutExercises.bulkAdd(data.workoutExercises)
     await db.sets.bulkAdd(data.sets)
     await db.settings.bulkPut(data.settings)
+    await db.routines.bulkAdd(data.routines)
 
     // 복원한 기록은 이 백업 파일과 같으므로, 백업한 날짜도 파일을 만든 때로 맞춘다.
     if (Number.isFinite(exportedAt)) {
