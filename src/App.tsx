@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { HashRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { TabBar } from './components/TabBar'
+import BodyWeightLog from './pages/BodyWeightLog'
 import ExercisePicker from './pages/ExercisePicker'
 import History from './pages/History'
 import HistoryDetail from './pages/HistoryDetail'
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="exercises/:id" element={<ExerciseDetail />} />
               <Route path="routines" element={<Routines />} />
               <Route path="routines/:id" element={<RoutineEditor />} />
+              <Route path="body-weight" element={<BodyWeightLog />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
