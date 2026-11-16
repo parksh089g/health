@@ -6,7 +6,6 @@ import History from './pages/History'
 import HistoryDetail from './pages/HistoryDetail'
 import Home from './pages/Home'
 import RoutineEditor from './pages/RoutineEditor'
-import RoutineExercisePicker from './pages/RoutineExercisePicker'
 import Routines from './pages/Routines'
 import Settings from './pages/Settings'
 import Stats from './pages/Stats'
@@ -47,7 +46,6 @@ export default function App() {
             <Route path="exercises/:id" element={<ExerciseDetail />} />
             <Route path="routines" element={<Routines />} />
             <Route path="routines/:id" element={<RoutineEditor />} />
-            <Route path="routines/:id/pick" element={<RoutineExercisePicker />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
