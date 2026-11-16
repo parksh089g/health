@@ -5,7 +5,14 @@ import { db } from '../db'
 import { backupFileName, exportBackup, importBackup, parseBackup, type BackupFile } from '../lib/backup'
 import { ensureSeedExercises } from '../lib/exercises'
 import { formatFullDate } from '../lib/format'
-import { REST_OPTIONS, SETTING_KEYS, getLastBackupAt, getRestSeconds, setSetting } from '../lib/settings'
+import {
+  REST_OPTIONS,
+  SETTING_KEYS,
+  getLastBackupAt,
+  getRecommendEnabled,
+  getRestSeconds,
+  setSetting,
+} from '../lib/settings'
 
 const BACKUP_MIME = 'application/json'
 
@@ -44,6 +51,7 @@ interface Notice {
 
 export default function Settings() {
   const restSeconds = useLiveQuery(getRestSeconds, [])
+  const recommendOn = useLiveQuery(getRecommendEnabled, [])
   const lastBackupAt = useLiveQuery(getLastBackupAt, [])
   const counts = useLiveQuery(async () => {
     const workouts = await db.workouts.filter((w) => w.endedAt !== null).count()
@@ -139,6 +147,29 @@ export default function Settings() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="다음 무게 추천">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={recommendOn !== false}
+          aria-label="다음 무게 추천"
+          aria-describedby="recommend-desc"
+          disabled={recommendOn === undefined}
+          onClick={() => void setSetting(SETTING_KEYS.recommendEnabled, !recommendOn)}
+          className="flex min-h-12 w-full items-center gap-3 text-left"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block font-bold text-ink">다음 무게 추천</span>
+            <span id="recommend-desc" className="mt-1 block break-keep text-sm leading-relaxed text-muted">
+              운동 중에 지난 기록을 보고 다음 무게와 횟수를 제안합니다. 목표 횟수를 모든 세트에서 채웠으면 무게를
+              올리고(상체 2.5kg, 하체 5kg), 못 채웠으면 같은 무게를 권합니다. 적용을 눌렀을 때만 바뀝니다.
+            </span>
+          </span>
+          {/* 읽어 오는 동안에는 기본값(켜짐)으로 보여 준다. */}
+          <Toggle on={recommendOn !== false} />
+        </button>
       </section>
 
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="백업">
@@ -242,5 +273,23 @@ export default function Settings() {
         )}
       </Dialog>
     </div>
+  )
+}
+
+/** 켜고 끄는 스위치 모양. 누르는 곳은 바깥의 버튼이다. */
+function Toggle({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`relative h-8 w-14 shrink-0 rounded-full border transition-colors ${
+        on ? 'border-accent bg-accent' : 'border-line bg-surface-2'
+      }`}
+    >
+      <span
+        className={`absolute top-[3px] size-6 rounded-full shadow-sm transition-[left] ${
+          on ? 'left-[27px] bg-on-accent' : 'left-[3px] bg-muted'
+        }`}
+      />
+    </span>
   )
 }

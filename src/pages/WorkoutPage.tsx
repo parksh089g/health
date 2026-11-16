@@ -6,11 +6,19 @@ import { ExerciseCard } from '../components/ExerciseCard'
 import { PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { formatClock } from '../lib/format'
+import { findNewRecords } from '../lib/history'
+import { getWorkoutRecommendations } from '../lib/recommend'
+import { getRecommendEnabled } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
 import { useNow } from '../lib/useNow'
 import { deleteWorkout, loadWorkoutDetail } from '../lib/workouts'
 import { useRestTimer } from '../rest/context'
 import { RestTimerBar } from '../rest/RestTimerBar'
+
+/** 추천이나 기록 계산이 실패해도 운동 기록은 계속할 수 있게 빈 값으로 바꾼다. */
+function orEmpty<T>(promise: Promise<T>, empty: T): Promise<T> {
+  return promise.catch(() => empty)
+}
 
 /** 운동 진행 화면. 종목별로 세트를 입력하고 완료를 체크한다. */
 export default function WorkoutPage() {
@@ -21,8 +29,16 @@ export default function WorkoutPage() {
   const now = useNow(1000)
   const [askCancel, setAskCancel] = useState(false)
   const detail = useLiveQuery(() => loadWorkoutDetail(id, { withLastSets: true }), [id])
+  // 추천과 새 기록은 따로 구독한다. 한 쿼리 안에서 여러 겹의 async 함수를 이어 부르면
+  // Dexie가 뒤쪽 읽기를 추적하지 못해 세트를 바꿔도 다시 계산되지 않는 일이 있다.
+  const recommendOn = useLiveQuery(getRecommendEnabled, [])
+  // 추천은 지난 기록만 보므로 세트를 입력하는 동안에는 바뀌지 않는다.
+  const recommendations = useLiveQuery(() => orEmpty(getWorkoutRecommendations(id), new Map()), [id])
+  const records = useLiveQuery(() => orEmpty(findNewRecords(id), []), [id])
 
-  if (detail === undefined) return null
+  // 추천이 나중에 끼어들어 세트 줄이 밀리지 않도록, 추천까지 준비된 뒤에 그린다.
+  // (PR 표시는 자리를 차지하지 않으니 기다리지 않는다.)
+  if (detail === undefined || recommendOn === undefined || recommendations === undefined) return null
   if (detail === null) return <Navigate to="/" replace />
   if (detail.workout.endedAt !== null) return <Navigate to={`/history/${id}`} replace />
 
@@ -62,7 +78,14 @@ export default function WorkoutPage() {
 
         <div className="grid gap-3">
           {items.map((item) => (
-            <ExerciseCard key={item.we.id} item={item} mode="active" onSetDone={() => rest.start()} />
+            <ExerciseCard
+              key={item.we.id}
+              item={item}
+              mode="active"
+              onSetDone={() => rest.start()}
+              recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
+              records={records}
+            />
           ))}
         </div>
 
