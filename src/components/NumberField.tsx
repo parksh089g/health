@@ -9,6 +9,8 @@ interface NumberFieldProps {
   ariaLabel: string
   inputRef?: Ref<HTMLInputElement>
   dimmed?: boolean
+  /** 비어 있을 때 보이는 글자. 기본은 "0" */
+  placeholder?: string
 }
 
 const DECIMAL = /^\d{0,3}(\.\d{0,2})?$/
@@ -22,7 +24,7 @@ function toText(value: number | null): string {
  * 숫자 입력 칸. 입력하는 동안에는 친 글자를 그대로 보여 주고("62." 같은 중간 상태 포함),
  * 값은 바뀔 때마다 바로 올려 보낸다.
  */
-export function NumberField({ value, onChange, decimal = false, unit, ariaLabel, inputRef, dimmed }: NumberFieldProps) {
+export function NumberField({ value, onChange, decimal = false, unit, ariaLabel, inputRef, dimmed, placeholder = '0' }: NumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const text = draft ?? toText(value)
 
@@ -45,7 +47,7 @@ export function NumberField({ value, onChange, decimal = false, unit, ariaLabel,
         enterKeyHint="done"
         autoComplete="off"
         aria-label={ariaLabel}
-        placeholder="0"
+        placeholder={placeholder}
         value={text}
         onFocus={(e) => {
           setDraft(toText(value))

@@ -15,6 +15,10 @@
   --accent-soft: #dfe8ff;
   --good: #15803d;
   --danger: #c62828;
+
+  /* 그래프: 강조하지 않은 막대(accent와 같은 색상의 옅은 단계), 기준선과 눈금 표시 */
+  --chart-soft: #9ab3ee;
+  --chart-axis: #a3acb9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,6 +34,9 @@
     --accent-soft: #1b2a4d;
     --good: #2f9e5b;
     --danger: #f07070;
+
+    --chart-soft: #35518f;
+    --chart-axis: #4f5868;
   }
 }
 
@@ -45,6 +52,8 @@
   --color-accent-soft: var(--accent-soft);
   --color-good: var(--good);
   --color-danger: var(--danger);
+  --color-chart-soft: var(--chart-soft);
+  --color-chart-axis: var(--chart-axis);
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Noto Sans KR', 'Malgun Gothic',
