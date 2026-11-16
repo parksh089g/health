@@ -1,10 +1,11 @@
-import { db, type AiAdvice, type AiRoutineDraft, type AiRoutineProposal, type RoutineItem } from '../../db'
+import { db, type AiAdvice, type AiRoutineDraft, type AiRoutineProposal, type Exercise, type RoutineItem } from '../../db'
+import { isTimed } from '../measure'
 import { newId } from '../id'
 import { createRoutine, MISSING_EXERCISE_NAME, ROUTINE_NAME_MAX, ROUTINE_SETS_RANGE } from '../routines'
-import { once, requireKey, type AdviceMeta } from './advice'
-import { AiError, askClaudeJson } from './client'
+import { askAndCount, once, requireKey, type AdviceMeta } from './advice'
+import { AiError } from './client'
 import { buildRoutineContext, type RoutineCandidate } from './context'
-import { addAiUsage, getAiModel } from './models'
+import { getAiModel } from './models'
 
 /**
  * AI 루틴 만들기. 사용자가 적은 요청으로 루틴을 1~4개 제안받아 미리 보여 주고, 고른 것만 보통 루틴으로 저장한다.
@@ -143,15 +144,13 @@ async function fetchRoutineProposals(requestText: string, now: number): Promise<
   const ctx = await buildRoutineContext(request, now)
   if (ctx.candidates.length === 0) throw new AiError('고를 수 있는 종목이 없습니다. 종목을 먼저 추가해 주세요.', 'request')
 
-  const res = await askClaudeJson({
+  const res = await askAndCount({
     apiKey,
     model,
     system: ROUTINE_SYSTEM,
     prompt: ctx.prompt,
     schema: routineSchema(ctx.candidates.map((c) => c.key)),
   })
-  // 답을 읽지 못해도 요금은 이미 들었으니 센다.
-  await addAiUsage(res.costUsd)
   const data: AiRoutineDraft = { request, routines: parseRoutineProposals(res.value, ctx.candidates) }
   await db.aiAdvice.put({
     id: ROUTINE_DRAFT_ID,
@@ -185,21 +184,33 @@ async function readDraftRow(): Promise<Extract<AiAdvice, { kind: 'routines' }> |
   return row
 }
 
+/**
+ * 제안을 받은 뒤 종목을 시간으로 재게 바꿨으면 횟수 목표를 비운다.
+ * (루틴에서 시간 종목의 reps는 목표 시간(초)으로 읽으므로, 그대로 두면 "30회"가 "30초"가 된다.)
+ */
+function withoutRepsIfTimed(item: RoutineItem, exercise: Exercise | undefined): RoutineItem {
+  return exercise && isTimed(exercise) && item.reps !== null ? { ...item, reps: null } : item
+}
+
 /** 저장해 둔 제안. 없으면 null. 종목이 모두 지워져 남은 것이 없는 루틴은 뺀다. */
 export async function getRoutineDraft(): Promise<RoutineDraftView | null> {
   const row = await readDraftRow()
   if (!row) return null
   const ids = [...new Set(row.data.routines.flatMap((r) => r.items.map((it) => it.exerciseId)))]
   const found = await db.exercises.bulkGet(ids)
-  const names = new Map(ids.flatMap((id, i) => (found[i] ? [[id, found[i].name] as const] : [])))
+  // 그사이 지우거나 숨긴 종목은 뺀다.
+  const usable = new Map(ids.flatMap((id, i) => (found[i] && !found[i].archived ? [[id, found[i]] as const] : [])))
   const proposals = row.data.routines
     .map((r) => ({
       id: r.id,
       name: r.name,
       rationale: r.rationale,
       entries: r.items
-        .filter((item) => names.has(item.exerciseId))
-        .map((item) => ({ item, name: names.get(item.exerciseId) ?? MISSING_EXERCISE_NAME })),
+        .filter((item) => usable.has(item.exerciseId))
+        .map((item) => ({
+          item: withoutRepsIfTimed(item, usable.get(item.exerciseId)),
+          name: usable.get(item.exerciseId)?.name ?? MISSING_EXERCISE_NAME,
+        })),
     }))
     .filter((p) => p.entries.length > 0)
   if (proposals.length === 0) return null
@@ -222,7 +233,10 @@ export async function saveRoutineProposals(proposalIds: string[], now: number = 
     const created: string[] = []
     for (const [i, r] of chosen.entries()) {
       const found = await db.exercises.bulkGet(r.items.map((it) => it.exerciseId))
-      const items = r.items.filter((_, k) => found[k] !== undefined)
+      const items = r.items.flatMap((it, k) => {
+        const exercise = found[k]
+        return exercise && !exercise.archived ? [withoutRepsIfTimed(it, exercise)] : []
+      })
       if (items.length === 0) continue
       // 루틴 목록은 최근에 만든 것부터 보이므로, 제안 순서대로 보이게 앞의 것을 조금 더 늦은 시각으로 둔다.
       created.push(await createRoutine({ name: r.name, items }, now + chosen.length - 1 - i))

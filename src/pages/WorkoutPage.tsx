@@ -10,6 +10,7 @@ import { getWorkoutAdvice } from '../lib/ai/advice'
 import { getAiModel } from '../lib/ai/models'
 import { formatClock } from '../lib/format'
 import { findNewRecords } from '../lib/history'
+import { isTimed } from '../lib/measure'
 import { getWorkoutRecommendations } from '../lib/recommend'
 import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
@@ -90,7 +91,7 @@ export default function WorkoutPage() {
             workoutId={id}
             model={ai.model}
             hasKey={ai.hasKey}
-            hasItems={items.length > 0}
+            hasItems={items.some((item) => item.exercise !== undefined && !isTimed(item.exercise))}
             advice={advice}
           />
         )}

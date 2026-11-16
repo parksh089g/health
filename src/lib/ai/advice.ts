@@ -126,6 +126,21 @@ export function parseWorkoutAdvice(raw: unknown, items: WorkoutContextItem[]): A
   return { summary: text(raw.summary, 400), exercises }
 }
 
+/**
+ * Claude에게 묻고, 요금이 든 요청은 모두 사용량에 더한다.
+ * 답을 쓰지 못한 경우(잘림, 거절, 읽지 못함)도 요금은 들었으므로 오류에 실려 온 값을 더한다.
+ */
+export async function askAndCount(req: Parameters<typeof askClaudeJson>[0]): Promise<Awaited<ReturnType<typeof askClaudeJson>>> {
+  try {
+    const res = await askClaudeJson(req)
+    await addAiUsage(res.costUsd)
+    return res
+  } catch (e) {
+    if (e instanceof AiError && e.costUsd !== undefined) await addAiUsage(e.costUsd)
+    throw e
+  }
+}
+
 // 화면을 옮겨 다녀도 같은 요청을 두 번 보내지 않도록, 진행 중인 요청을 id별로 기억한다.
 const inFlight = new Map<string, Promise<unknown>>()
 
@@ -160,7 +175,7 @@ async function fetchWorkoutAdvice(workoutId: string, now: number): Promise<AiAdv
   const ctx = await buildWorkoutContext(workoutId, now)
   if (ctx.items.length === 0) throw new AiError('추천받을 종목을 먼저 추가해 주세요.', 'request')
 
-  const res = await askClaudeJson({
+  const res = await askAndCount({
     apiKey,
     model,
     system: WORKOUT_SYSTEM,
@@ -181,7 +196,6 @@ async function fetchWorkoutAdvice(workoutId: string, now: number): Promise<AiAdv
   await db.transaction('rw', db.workouts, db.aiAdvice, async () => {
     if (await db.workouts.get(workoutId)) await db.aiAdvice.put(advice)
   })
-  await addAiUsage(res.costUsd)
   return advice
 }
 
@@ -247,7 +261,7 @@ async function fetchReview(now: number): Promise<AiAdvice> {
   const prompt = await buildReviewContext(now)
   if (prompt === null) throw new AiError('분석할 운동 기록이 아직 없습니다.', 'request')
 
-  const res = await askClaudeJson({ apiKey, model, system: REVIEW_SYSTEM, prompt, schema: REVIEW_SCHEMA })
+  const res = await askAndCount({ apiKey, model, system: REVIEW_SYSTEM, prompt, schema: REVIEW_SCHEMA })
   const advice: AiAdvice = {
     id: REVIEW_ADVICE_ID,
     kind: 'review',
@@ -258,7 +272,6 @@ async function fetchReview(now: number): Promise<AiAdvice> {
     data: parseReview(res.value),
   }
   await db.aiAdvice.put(advice)
-  await addAiUsage(res.costUsd)
   return advice
 }
 
@@ -320,9 +333,8 @@ async function fetchWorkoutFeedback(workoutId: string, now: number): Promise<AiA
   const prompt = await buildFeedbackContext(workoutId, now)
   if (prompt === null) throw new AiError('끝낸 운동의 기록이 있어야 피드백을 받을 수 있습니다.', 'request')
 
-  const res = await askClaudeJson({ apiKey, model, system: FEEDBACK_SYSTEM, prompt, schema: FEEDBACK_SCHEMA })
+  const res = await askAndCount({ apiKey, model, system: FEEDBACK_SYSTEM, prompt, schema: FEEDBACK_SCHEMA })
   // 답을 읽지 못하거나 그사이 운동을 지워도 요금은 이미 들었으니 센다.
-  await addAiUsage(res.costUsd)
   const advice: AiAdvice = {
     id: feedbackAdviceId(workoutId),
     kind: 'feedback',

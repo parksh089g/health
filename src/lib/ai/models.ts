@@ -1,3 +1,4 @@
+import { db } from '../../db'
 import { getSetting, setSetting, SETTING_KEYS } from '../settings'
 
 /**
@@ -27,6 +28,12 @@ export async function getAiModel(): Promise<AiModelId> {
   return isAiModelId(v) ? v : DEFAULT_AI_MODEL
 }
 
+/** 거절됐을 때 이어 답할 수 있는, 고를 수 없는 모델의 요금(100만 토큰당 달러) */
+const FALLBACK_PRICES = [
+  { id: 'claude-opus-4-8', inputPerM: 5, outputPerM: 25 },
+  { id: 'claude-opus-5', inputPerM: 5, outputPerM: 25 },
+] as const
+
 /**
  * 토큰 수로 요금(달러)을 어림한다. 답한 모델을 모르면 요청한 모델의 요금을 쓴다.
  * 답한 모델 이름에 날짜 같은 꼬리가 붙어도 앞부분으로 찾는다.
@@ -36,7 +43,10 @@ export function estimateCostUsd(
   servedModel: string,
   requestedModel: AiModelId,
 ): number {
-  const info = AI_MODELS.find((m) => servedModel.startsWith(m.id)) ?? aiModelInfo(requestedModel)
+  const info =
+    AI_MODELS.find((m) => servedModel.startsWith(m.id)) ??
+    FALLBACK_PRICES.find((m) => servedModel.startsWith(m.id)) ??
+    aiModelInfo(requestedModel)
   if (!info) return 0
   return (usage.input_tokens * info.inputPerM + usage.output_tokens * info.outputPerM) / 1_000_000
 }
@@ -91,6 +101,9 @@ export async function getAiUsage(now: number = Date.now()): Promise<AiUsage> {
 }
 
 export async function addAiUsage(costUsd: number, now: number = Date.now()): Promise<void> {
-  const cur = await getAiUsage(now)
-  await setSetting(SETTING_KEYS.aiUsage, { month: cur.month, calls: cur.calls + 1, costUsd: cur.costUsd + costUsd })
+  // 두 요청이 거의 같이 끝나도 하나가 빠지지 않게 읽고 쓰기를 한 번에 한다.
+  await db.transaction('rw', db.settings, async () => {
+    const cur = await getAiUsage(now)
+    await setSetting(SETTING_KEYS.aiUsage, { month: cur.month, calls: cur.calls + 1, costUsd: cur.costUsd + costUsd })
+  })
 }

@@ -426,8 +426,8 @@ describe('추천: 맨몸 종목과 추가 무게', () => {
     const rec = { weightKg: null, reps: 9, fromWeightKg: null }
     expect(setsToApply(sets, rec, { addedWeight: true })).toEqual([sets[1], sets[2]])
     expect(isRecommendationApplied([s(10, 5), s(null, 9), s(null, 9)], rec, { addedWeight: true })).toBe(true)
-    // 맨몸 세트가 하나도 없으면 남은 본 세트 모두(전과 같다).
-    expect(setsToApply([s(10, 5), s(10, 5)], rec, { addedWeight: true })).toHaveLength(2)
+    // 맨몸 세트가 하나도 없으면 아무것도 바꾸지 않는다(추가 무게 세트에 횟수만 덮어쓰지 않는다).
+    expect(setsToApply([s(10, 5), s(10, 5)], rec, { addedWeight: true })).toHaveLength(0)
   })
 
   it('끝난 기록에서 추천을 내고, 적용하면 추가 무게 세트만 바뀐다', async () => {

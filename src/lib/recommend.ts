@@ -296,13 +296,21 @@ export function setsToApply<T extends Pick<SetEntry, 'weightKg' | 'isWarmup' | '
 ): T[] {
   const pending = pendingWorkingSets(sets)
   if (timeOf(rec) !== null) return pending
-  const orAll = (picked: T[]) => (picked.length > 0 ? picked : pending)
-  if (rec.weightKg === null) return opts.addedWeight ? orAll(pending.filter((s) => !isWeighted(s))) : pending
+  // 맨몸 종목의 횟수 추천은 무게를 달지 않은 세트에만 채운다. 추가 무게 세트에 횟수만 덮어쓰지 않는다.
+  if (rec.weightKg === null) return opts.addedWeight ? pending.filter((s) => !isWeighted(s)) : pending
   const from = rec.fromWeightKg
   if (from === undefined || from === null) return pending
   // 맨몸 종목에서 무게 없이 횟수만 적힌 세트는 맨몸으로 하려는 세트라 그대로 둔다.
   const blank = (s: T) => s.weightKg === null && !(opts.addedWeight && (s.reps ?? 0) > 0)
-  return orAll(pending.filter((s) => blank(s) || sameKg(s.weightKg, from)))
+  const picked = pending.filter((s) => blank(s) || sameKg(s.weightKg, from))
+  if (picked.length > 0) return picked
+  // 이미 적용해서 그 세트를 끝냈으면 더 채울 세트가 없다. 남은 가벼운 세트(백오프)를 건드리지 않는다.
+  return appliedSetIsDone(sets, rec) ? [] : pending
+}
+
+/** 추천 무게로 끝낸 본 세트가 있는지(적용한 뒤 그 세트를 완료한 경우) */
+function appliedSetIsDone(sets: Pick<SetEntry, 'weightKg' | 'isWarmup' | 'isDone'>[], rec: ApplyRec): boolean {
+  return sets.some((s) => s.isDone && !s.isWarmup && sameKg(s.weightKg, rec.weightKg))
 }
 
 /** 추천을 이미 적용했는지. 아직 하지 않은 본 세트가 없으면 false. */
@@ -318,6 +326,8 @@ export function isRecommendationApplied(sets: ApplySet[], rec: ApplyRec, opts: A
     return pending.every((s) => s.reps === rec.reps && sameKg(s.weightKg, rec.weightKg))
   }
   const atRec = pending.filter((s) => sameKg(s.weightKg, rec.weightKg))
+  // 적용한 세트를 이미 끝냈고 더 채울 세트가 없으면 적용된 것으로 본다(다시 눌러 다른 세트를 바꾸지 않게).
+  if (atRec.length === 0 && setsToApply(sets, rec, opts).length === 0) return true
   if (atRec.length === 0 || atRec.some((s) => s.reps !== rec.reps)) return false
   // 무게가 빈 세트나, 아직 바꾸지 않은 지난번 최고 무게 세트가 남아 있으면 적용 전이다.
   // (맨몸 종목에서 횟수만 적힌 세트는 맨몸 세트라 빈 세트로 치지 않는다.)

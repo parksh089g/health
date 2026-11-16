@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { AiProfile } from '../db'
 import { AiError, checkConnection } from '../lib/ai/client'
 import { AI_MODELS, formatUsd, getAiModel, getAiUsage, typicalCostText, type AiModelId } from '../lib/ai/models'
@@ -240,7 +240,7 @@ function ProfileFields({ profile }: { profile: AiProfile }) {
             onChange={(v) => void saveAiProfile({ daysPerWeek: Number(v) === profile.daysPerWeek ? null : Number(v) })}
           />
         </ProfileRow>
-        <ProfileNotes key={profile.notes} initial={profile.notes} />
+        <ProfileNotes initial={profile.notes} />
       </div>
     </div>
   )
@@ -255,9 +255,29 @@ function ProfileRow({ label, children }: { label: string; children: ReactNode })
   )
 }
 
-/** 참고할 점. 입력 칸을 벗어날 때 저장한다. */
+/** 참고할 점. 적다가 잠깐 멈추거나 입력 칸을 벗어나면 저장한다. */
 function ProfileNotes({ initial }: { initial: string }) {
   const [text, setText] = useState(initial)
+  // 저장된 값이 밖에서 바뀌면(복원 등) 따라간다. 방금 적어서 저장된 값이면 적는 중인 글을 그대로 둔다.
+  const [seen, setSeen] = useState(initial)
+  const [sent, setSent] = useState<string | null>(null)
+  if (seen !== initial) {
+    setSeen(initial)
+    if (initial !== sent && text.trim() !== initial) setText(initial)
+  }
+  const save = () => {
+    const notes = text.trim().slice(0, AI_PROFILE_NOTES_MAX)
+    setSent(notes)
+    void saveAiProfile({ notes })
+  }
+  // 뒤로 가기로 화면을 떠나도 적은 글이 남도록, 멈추면 바로 저장해 둔다.
+  useEffect(() => {
+    if (text.trim() === initial) return
+    const timer = setTimeout(save, 600)
+    return () => clearTimeout(timer)
+    // save는 text만 본다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, initial])
   return (
     <label className="grid gap-1.5 text-sm text-muted">
       참고할 점
@@ -265,7 +285,7 @@ function ProfileNotes({ initial }: { initial: string }) {
         value={text}
         onChange={(e) => setText(e.currentTarget.value)}
         onBlur={() => {
-          if (text.trim() !== initial) void saveAiProfile({ notes: text })
+          if (text.trim() !== initial) save()
         }}
         rows={3}
         maxLength={AI_PROFILE_NOTES_MAX}

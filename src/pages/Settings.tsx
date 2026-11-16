@@ -307,15 +307,19 @@ function RestDirectInput({ seconds }: { seconds: number }) {
   const [value, setValue] = useState<number | null>(seconds)
   // 위의 버튼이나 타이머에서 기본값이 바뀌면 칸의 값도 따라간다(적는 중에 저장된 값이면 그대로 둔다).
   const [seen, setSeen] = useState(seconds)
+  const [sent, setSent] = useState<number | null>(null)
   if (seen !== seconds) {
     setSeen(seconds)
-    if (value !== seconds) setValue(seconds)
+    if (seconds !== sent && value !== seconds) setValue(seconds)
   }
   const invalid = value !== null && !isRestSeconds(value)
 
   const change = (v: number | null) => {
     setValue(v)
-    if (isRestSeconds(v) && v !== seconds) void setSetting(SETTING_KEYS.restSeconds, v)
+    if (isRestSeconds(v) && v !== seconds) {
+      setSent(v)
+      void setSetting(SETTING_KEYS.restSeconds, v)
+    }
   }
 
   return (

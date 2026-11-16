@@ -383,6 +383,31 @@ describe('API 키와 백업', () => {
   })
 })
 
+describe('사용량 세기', () => {
+  it('답을 쓰지 못한 요청(잘림, 읽지 못함)도 요금이 들었으면 센다', async () => {
+    await setSetting(SETTING_KEYS.aiApiKey, 'sk-ant-test')
+    const today = await record(NOW, { [BENCH]: [[60, 8, { done: false }]] }, { finish: false })
+    askMock.mockRejectedValueOnce(new AiError('AI 답이 너무 길어 잘렸습니다. 다시 시도해 주세요.', 'truncated', undefined, 0.3))
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow('잘렸습니다')
+    expect(await getAiUsage()).toMatchObject({ calls: 1, costUsd: 0.3 })
+
+    // 답은 왔지만 쓸 수 있는 추천이 없을 때
+    askMock.mockResolvedValueOnce({ value: { summary: '', exercises: [] }, servedModel: 'claude-opus-5-5', costUsd: 0.05, inputTokens: 1, outputTokens: 1 })
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow(AiError)
+    expect((await getAiUsage()).calls).toBe(2)
+
+    // 요청이 가지 않은 오류(키 오류 등)는 세지 않는다.
+    askMock.mockRejectedValueOnce(new AiError('API 키가 맞지 않습니다.', 'auth'))
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow('API 키')
+    expect((await getAiUsage()).calls).toBe(2)
+  })
+
+  it('고를 수 없는 대체 모델이 답하면 그 모델의 요금으로 어림한다', () => {
+    expect(estimateCostUsd({ input_tokens: 1_000_000, output_tokens: 0 }, 'claude-opus-4-8', 'claude-opus-5-5')).toBe(5)
+    expect(estimateCostUsd({ input_tokens: 1_000_000, output_tokens: 0 }, 'claude-opus-5-5', 'claude-opus-5-5')).toBe(4)
+  })
+})
+
 describe('답 글 꺼내기', () => {
   it('거절로 다른 모델이 이어 답했으면 fallback 블록 뒤의 글만 쓴다', () => {
     expect(answerText([{ type: 'text', text: '{"a":1}' }])).toBe('{"a":1}')

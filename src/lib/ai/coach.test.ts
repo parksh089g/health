@@ -619,6 +619,34 @@ describe('AI 루틴 만들기', () => {
     expect(await db.routines.count()).toBe(1)
   })
 
+  it('제안을 받은 뒤 숨긴 종목은 빼고, 시간으로 재게 바꾼 종목은 횟수 목표를 비워 저장한다', async () => {
+    await setSetting(SETTING_KEYS.aiApiKey, KEY)
+    const ctx = await buildRoutineContext('x', NOW)
+    const keyOf = (id: string) => ctx.candidates.find((c) => c.exerciseId === id)!.key
+    askMock.mockResolvedValueOnce(
+      answer({
+        routines: [
+          {
+            name: '전신',
+            rationale: '',
+            items: [{ key: keyOf(BENCH), sets: 3, reps: 10 }, { key: keyOf(SQUAT), sets: 3, reps: 30 }, { key: keyOf(OHP), sets: 3, reps: 8 }],
+          },
+        ],
+      }),
+    )
+    await requestRoutineProposals('전신', NOW)
+    await db.exercises.update(OHP, { archived: true })
+    await db.exercises.update(SQUAT, { measure: 'time' })
+
+    const view = (await getRoutineDraft())!
+    expect(view.proposals[0].entries.map((e) => [e.name, e.item.reps])).toEqual([['벤치프레스', 10], ['스쿼트', null]])
+    await saveRoutineProposals([view.proposals[0].id], NOW)
+    expect((await listRoutines())[0].items).toEqual([
+      { exerciseId: BENCH, sets: 3, reps: 10 },
+      { exerciseId: SQUAT, sets: 3, reps: null },
+    ])
+  })
+
   it('쓸 수 없는 답이면 전에 받은 제안은 그대로 두고 알린다. 요청이 비었거나 키가 없으면 보내지 않는다', async () => {
     await expect(requestRoutineProposals('상체', NOW)).rejects.toThrow('API 키를 먼저')
     await setSetting(SETTING_KEYS.aiApiKey, KEY)
