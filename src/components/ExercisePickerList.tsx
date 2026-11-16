@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { BodyPart, Equipment, Exercise } from '../db'
-import { BODY_PARTS, EQUIPMENT, addCustomExercise, bodyPartLabel, equipmentLabel } from '../lib/exercises'
+import { BODY_PARTS, EQUIPMENT, addCustomExercise, bodyPartLabel, equipmentLabel, nameKey } from '../lib/exercises'
 import { CheckIcon, PlusIcon, SearchIcon } from './icons'
 
 interface ExercisePickerListProps {
@@ -23,9 +23,10 @@ export function ExercisePickerList({ exercises, addedIds, selected, onToggle, on
   const [part, setPart] = useState<BodyPart | 'all'>('all')
   const [formOpen, setFormOpen] = useState(false)
 
-  const q = query.trim().toLowerCase()
+  // 띄어쓰기 없이 찾아도 나오게 한다("스티프데드" → "스티프 데드리프트").
+  const q = nameKey(query)
   const shown = exercises
-    .filter((e) => (part === 'all' || e.bodyPart === part) && (q === '' || e.name.toLowerCase().includes(q)))
+    .filter((e) => (part === 'all' || e.bodyPart === part) && (q === '' || nameKey(e.name).includes(q)))
     .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
 
   return (
