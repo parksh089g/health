@@ -87,6 +87,7 @@ function cleanName(raw: string): string {
 /**
  * 내 종목 추가. 같은 이름(띄어쓰기, 대소문자 무시)이 이미 있으면 그 종목의 id를 돌려준다.
  * 그 종목이 숨겨져 있었으면 다시 보이게 한다.
+ * 다만 이미 있는 종목이 재는 방법(횟수/시간)이 다르면, 다른 방식의 종목을 말없이 쓰게 되지 않도록 오류를 던진다.
  */
 export async function addCustomExercise(input: ExerciseInput): Promise<string> {
   const name = cleanName(input.name)
@@ -95,6 +96,13 @@ export async function addCustomExercise(input: ExerciseInput): Promise<string> {
     const all = await db.exercises.toArray()
     const same = all.find((e) => nameKey(e.name) === nameKey(name))
     if (same) {
+      if (input.measure !== undefined && input.measure !== measureOf(same)) {
+        const how = isTimed(same) ? '시간으로' : '횟수로'
+        const hidden = same.archived ? '(숨김)' : ''
+        throw new Error(
+          `이미 있는 "${same.name}" 종목${hidden}은 ${how} 기록합니다. 그 종목을 쓰거나 다른 이름으로 만들어 주세요.`,
+        )
+      }
       if (same.archived) await db.exercises.update(same.id, { archived: false })
       return same.id
     }

@@ -302,28 +302,47 @@ export default function Settings() {
   )
 }
 
-/** 휴식 시간 기본값을 초로 직접 적는 칸. 범위 안의 값이면 바로 저장한다. */
+/**
+ * 휴식 시간 기본값을 초로 직접 적는 칸. 범위 안의 값이면 바로 저장한다.
+ * 적는 동안에는 중간 값(120을 지우다 만 12)도 저장되므로, 비우거나 맞지 않는 값을 남기고 칸을 떠나면 적기 전 값으로 되돌린다.
+ */
 function RestDirectInput({ seconds }: { seconds: number }) {
   const [value, setValue] = useState<number | null>(seconds)
   // 위의 버튼이나 타이머에서 기본값이 바뀌면 칸의 값도 따라간다(적는 중에 저장된 값이면 그대로 둔다).
   const [seen, setSeen] = useState(seconds)
   const [sent, setSent] = useState<number | null>(null)
+  // 마지막으로 제대로 정한 값
+  const [committed, setCommitted] = useState(seconds)
   if (seen !== seconds) {
     setSeen(seconds)
-    if (seconds !== sent && value !== seconds) setValue(seconds)
+    if (seconds !== sent) {
+      setCommitted(seconds)
+      if (value !== seconds) setValue(seconds)
+    }
   }
   const invalid = value !== null && !isRestSeconds(value)
 
+  const store = (v: number) => {
+    setSent(v)
+    void setSetting(SETTING_KEYS.restSeconds, v)
+  }
+
   const change = (v: number | null) => {
     setValue(v)
-    if (isRestSeconds(v) && v !== seconds) {
-      setSent(v)
-      void setSetting(SETTING_KEYS.restSeconds, v)
+    if (isRestSeconds(v) && v !== seconds) store(v)
+  }
+
+  const leave = () => {
+    if (isRestSeconds(value)) {
+      setCommitted(value)
+      return
     }
+    setValue(committed)
+    if (committed !== seconds) store(committed)
   }
 
   return (
-    <div className="mt-3 grid grid-cols-2 items-center gap-3">
+    <div className="mt-3 grid grid-cols-2 items-center gap-3" onBlur={leave}>
       <NumberField value={value} onChange={change} unit="초" ariaLabel="휴식 시간 기본값 직접 입력" placeholder={String(seconds)} />
       <p role={invalid ? 'alert' : undefined} className={`text-sm ${invalid ? 'text-danger' : 'text-muted'}`}>
         {invalid ? `${REST_RANGE.min}~${REST_RANGE.max}초로 정해 주세요.` : '직접 입력'}

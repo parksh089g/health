@@ -10,6 +10,7 @@ import {
   saveWorkoutAsRoutine,
   startWorkoutFromRoutine,
   summarizeNames,
+  syncRoutineDraft,
   updateRoutine,
 } from './routines'
 import { addExercisesToWorkout, addSet, finishWorkout, loadWorkoutDetail, startWorkout, updateSet } from './workouts'
@@ -113,6 +114,29 @@ describe('루틴 만들기와 고치기', () => {
     await expect(updateRoutine(id, { name: '', items: [item(SQUAT)] })).rejects.toThrow('루틴 이름')
     expect((await getRoutine(id))?.name).toBe('하체')
     await expect(updateRoutine('nope', { name: '하체', items: [item(SQUAT)] })).rejects.toThrow('루틴을 찾을 수 없습니다.')
+  })
+
+  it('저장할 때 지워진 종목은 빼고, 남는 종목이 없으면 오류를 낸다', async () => {
+    const id = await createRoutine({ name: '하체', items: [item('ex-gone', 3, 10), item(SQUAT, 4, 5)] })
+    expect((await getRoutine(id))?.items).toEqual([item(SQUAT, 4, 5)])
+
+    await updateRoutine(id, { name: '하체', items: [item(BENCH, 3, 8), item('ex-gone')] })
+    expect((await getRoutine(id))?.items).toEqual([item(BENCH, 3, 8)])
+
+    await expect(updateRoutine(id, { name: '하체', items: [item('ex-gone')] })).rejects.toThrow('종목을 하나 이상')
+    await expect(createRoutine({ name: '없음', items: [item('ex-gone')] })).rejects.toThrow('종목을 하나 이상')
+  })
+
+  it('고치는 동안 종목이 지워지거나 횟수와 시간이 바뀌면 고치던 내용을 맞춘다', async () => {
+    const before = await db.exercises.toArray()
+    const draft = [item(SQUAT, 4, 5), item(BENCH, 3, 8), item(CURL, 2, null)]
+    // 바뀐 것이 없으면 그대로
+    expect(syncRoutineDraft(draft, before, before)).toBe(draft)
+
+    const now = before
+      .filter((e) => e.id !== SQUAT)
+      .map((e) => (e.id === BENCH || e.id === CURL ? { ...e, measure: 'time' as const } : e))
+    expect(syncRoutineDraft(draft, before, now)).toEqual([item(BENCH, 3, null), item(CURL, 2, null)])
   })
 
   it('지운다', async () => {

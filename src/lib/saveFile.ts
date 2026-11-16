@@ -5,6 +5,9 @@ import { SETTING_KEYS, setSetting } from './settings'
 
 export const BACKUP_MIME = 'application/json'
 
+/** 내려받기가 시작된 뒤 파일 주소를 이만큼 더 살려 둔다. 폰에서 저장할지 묻는 창이 떠 있는 동안 주소가 사라지면 저장이 실패한다. */
+const KEEP_URL_MS = 40_000
+
 export function downloadFile(text: string, name: string, type: string = BACKUP_MIME): void {
   const url = URL.createObjectURL(new Blob([text], { type }))
   const a = document.createElement('a')
@@ -13,7 +16,7 @@ export function downloadFile(text: string, name: string, type: string = BACKUP_M
   document.body.appendChild(a)
   a.click()
   a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(url), KEEP_URL_MS)
 }
 
 /**

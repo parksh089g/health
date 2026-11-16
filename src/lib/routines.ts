@@ -66,16 +66,52 @@ export function normalizeRoutineInput(input: RoutineInput, timedIds: ReadonlySet
   return { name, items }
 }
 
-/** 루틴에 든 종목 중 시간 종목의 id */
-async function timedIdsOf(items: RoutineItem[]): Promise<Set<string>> {
-  const ids = items.map((item) => item.exerciseId).filter((id) => typeof id === 'string' && id !== '')
-  const exercises = await db.exercises.bulkGet(ids)
-  return new Set(exercises.flatMap((e) => (e && isTimed(e) ? [e.id] : [])))
+/**
+ * 지워진 종목을 빼고, 남은 종목 중 시간 종목의 id를 함께 돌려준다.
+ * (루틴을 고치는 동안 종목 선택에서 종목을 지웠을 때 없는 종목이 루틴에 다시 들어가지 않게.)
+ */
+async function withExistingExercises(input: RoutineInput): Promise<{ input: RoutineInput; timedIds: Set<string> }> {
+  const valid = (id: unknown): id is string => typeof id === 'string' && id !== ''
+  const ids = input.items.map((item) => item.exerciseId).filter(valid)
+  const exercises = (await db.exercises.bulkGet(ids)).flatMap((e) => (e ? [e] : []))
+  const existing = new Set(exercises.map((e) => e.id))
+  return {
+    // id가 올바르지 않은 항목은 남겨서 normalizeRoutineInput이 이유를 알려 주게 한다.
+    input: { ...input, items: input.items.filter((item) => !valid(item.exerciseId) || existing.has(item.exerciseId)) },
+    timedIds: new Set(exercises.filter(isTimed).map((e) => e.id)),
+  }
+}
+
+/**
+ * 루틴을 고치는 동안 종목이 바뀌었을 때 고치던 내용을 맞춘다.
+ * 지워진 종목은 빼고, 횟수와 시간이 바뀐 종목은 단위가 달라졌으니 목표를 비운다. 바뀐 것이 없으면 받은 배열을 그대로 돌려준다.
+ */
+export function syncRoutineDraft(items: RoutineItem[], before: Exercise[], now: Exercise[]): RoutineItem[] {
+  const was = new Map(before.map((e) => [e.id, isTimed(e)]))
+  const is = new Map(now.map((e) => [e.id, isTimed(e)]))
+  let changed = false
+  const next: RoutineItem[] = []
+  for (const item of items) {
+    const timed = is.get(item.exerciseId)
+    if (timed === undefined) {
+      changed = true
+      continue
+    }
+    const wasTimed = was.get(item.exerciseId)
+    if (wasTimed !== undefined && wasTimed !== timed && item.reps !== null) {
+      changed = true
+      next.push({ ...item, reps: null })
+    } else {
+      next.push(item)
+    }
+  }
+  return changed ? next : items
 }
 
 /** 루틴을 만든다. 만든 루틴의 id를 돌려준다. */
 export async function createRoutine(input: RoutineInput, now: number = Date.now()): Promise<string> {
-  const { name, items } = normalizeRoutineInput(input, await timedIdsOf(input.items))
+  const existing = await withExistingExercises(input)
+  const { name, items } = normalizeRoutineInput(existing.input, existing.timedIds)
   const id = newId()
   await db.routines.add({ id, name, items, createdAt: now, updatedAt: now, lastUsedAt: null })
   return id
@@ -83,7 +119,8 @@ export async function createRoutine(input: RoutineInput, now: number = Date.now(
 
 /** 루틴의 이름과 종목을 바꾼다. 만든 시각과 마지막으로 쓴 시각은 그대로 둔다. */
 export async function updateRoutine(id: string, input: RoutineInput, now: number = Date.now()): Promise<void> {
-  const { name, items } = normalizeRoutineInput(input, await timedIdsOf(input.items))
+  const existing = await withExistingExercises(input)
+  const { name, items } = normalizeRoutineInput(existing.input, existing.timedIds)
   const updated = await db.routines.update(id, { name, items, updatedAt: now })
   if (updated === 0 && !(await db.routines.get(id))) throw new Error('루틴을 찾을 수 없습니다.')
 }

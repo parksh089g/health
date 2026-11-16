@@ -16,6 +16,7 @@ import {
   createRoutine,
   deleteRoutine,
   getRoutine,
+  syncRoutineDraft,
   updateRoutine,
 } from '../lib/routines'
 import { useGoBack } from '../lib/useGoBack'
@@ -59,6 +60,14 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
   const [saving, setSaving] = useState(false)
   const [ask, setAsk] = useState<'delete' | 'leave' | null>(null)
   const editorScroll = useRef(0)
+
+  // 종목 선택 안에서 종목을 지우거나 횟수/시간을 바꿨으면 고치던 내용도 거기에 맞춘다.
+  const [known, setKnown] = useState(exercises)
+  if (known !== exercises) {
+    setKnown(exercises)
+    const synced = syncRoutineDraft(items, known, exercises)
+    if (synced !== items) setItems(synced)
+  }
 
   const picking = searchParams.has(PICK_PARAM)
   const byId = new Map(exercises.map((e) => [e.id, e]))

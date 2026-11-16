@@ -119,6 +119,21 @@ describe('내 종목 추가', () => {
     expect(await db.exercises.get('seed:squat')).toMatchObject({ archived: false, isCustom: false })
     expect(await db.exercises.count()).toBe(SEED_EXERCISES.length)
   })
+
+  it('같은 이름의 종목이 재는 방법이 다르면 알려 주고 그 종목을 건드리지 않는다', async () => {
+    await ensureSeedExercises()
+    await db.exercises.update('seed:plank', { archived: true })
+    await expect(addCustomExercise({ name: '플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'reps' })).rejects.toThrow(
+      '이미 있는 "플랭크" 종목(숨김)은 시간으로 기록합니다.',
+    )
+    expect((await db.exercises.get('seed:plank'))?.archived).toBe(true)
+    await expect(addCustomExercise({ name: '스쿼트', bodyPart: 'legs', equipment: 'barbell', measure: 'time' })).rejects.toThrow(
+      '이미 있는 "스쿼트" 종목은 횟수로 기록합니다.',
+    )
+    // 재는 방법이 같거나 정하지 않았으면 전처럼 있는 종목을 돌려준다.
+    expect(await addCustomExercise({ name: '플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' })).toBe('seed:plank')
+    expect(await addCustomExercise({ name: '스쿼트', bodyPart: 'legs', equipment: 'barbell' })).toBe('seed:squat')
+  })
 })
 
 describe('내 종목 고치기', () => {

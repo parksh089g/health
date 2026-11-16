@@ -164,6 +164,16 @@ export async function run(phone) {
   await direct.blur()
   await visible(page.getByText('3분 30초', { exact: true }), '직접 넣은 210초')
   await eventually(async () => (await exercise('seed:squat')).restSeconds, 210, '직접 넣은 210초가 저장됨')
+  // 지우다 만 중간 값(21)이 잠깐 저장돼도, 맞지 않는 값을 남기고 떠나면 적기 전 값으로 돌아온다.
+  await direct.focus()
+  await direct.press('End')
+  await direct.press('Backspace')
+  await eventually(async () => (await exercise('seed:squat')).restSeconds, 21, '적는 동안에는 중간 값도 저장됨')
+  await direct.press('Backspace')
+  await direct.blur()
+  await eventually(async () => (await exercise('seed:squat')).restSeconds, 210, '맞지 않는 값을 남기고 떠나면 전 값으로 돌아옴')
+  await direct.fill('210')
+  await direct.blur()
   // 메모를 치자마자 화면을 떠나도 저장된다.
   await page.getByLabel('종목 메모').fill(NOTE)
   await page.getByRole('button', { name: '뒤로' }).tap()

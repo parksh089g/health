@@ -45,7 +45,7 @@ import {
   type ProgressMetric,
   type SessionPoint,
 } from '../lib/stats'
-import { DEFAULT_REST_SECONDS, getRestSeconds, REST_OPTIONS, REST_RANGE } from '../lib/settings'
+import { DEFAULT_REST_SECONDS, getRestSeconds, isRestSeconds, REST_OPTIONS, REST_RANGE } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
 
 /** 처음에 보여 줄 지난 기록 수 */
@@ -440,6 +440,18 @@ function RestCard({ exercise, defaultSeconds }: { exercise: Exercise; defaultSec
   const { value, change, error, onBlur } = useAutoSave<number | null>(exercise.restSeconds ?? null, (v) =>
     updateExerciseRest(exercise.id, v),
   )
+  // 마지막으로 제대로 정한 값. 적는 동안에는 중간 값(120을 지우다 만 12)도 저장되므로,
+  // 맞지 않는 값을 남기고 칸을 떠나면 이 값으로 되돌려 놓는다.
+  const committed = useRef<number | null>(exercise.restSeconds ?? null)
+  const pick = (v: number | null) => {
+    committed.current = v
+    change(v, { left: true })
+  }
+  const leave = () => {
+    onBlur()
+    if (value === null || isRestSeconds(value)) committed.current = value
+    else void updateExerciseRest(exercise.id, committed.current).catch(() => {})
+  }
   const chip = (on: boolean) =>
     `h-11 min-w-0 rounded-xl text-[15px] font-semibold tabular-nums active:opacity-70 ${
       on ? 'bg-accent text-on-accent' : 'bg-surface-2 text-muted'
@@ -454,7 +466,7 @@ function RestCard({ exercise, defaultSeconds }: { exercise: Exercise; defaultSec
           <button
             type="button"
             aria-pressed={value === null}
-            onClick={() => change(null, { left: true })}
+            onClick={() => pick(null)}
             className={chip(value === null)}
           >
             기본
@@ -464,14 +476,14 @@ function RestCard({ exercise, defaultSeconds }: { exercise: Exercise; defaultSec
               key={sec}
               type="button"
               aria-pressed={value === sec}
-              onClick={() => change(sec, { left: true })}
+              onClick={() => pick(sec)}
               className={chip(value === sec)}
             >
               {sec}초
             </button>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-2 items-center gap-3" onBlur={onBlur}>
+        <div className="mt-3 grid grid-cols-2 items-center gap-3" onBlur={leave}>
           <NumberField
             value={value}
             onChange={change}
