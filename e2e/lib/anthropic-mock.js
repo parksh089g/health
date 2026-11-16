@@ -79,8 +79,10 @@ export async function mockAnthropic(context) {
       return route.fulfill({ status: 500, headers: JSON_HEADERS, body: JSON.stringify(error) })
     }
     if (reply.delayMs) await sleep(reply.delayMs)
+    if (reply.held) await reply.held
     const headers = { ...CORS, 'content-type': reply.contentType }
-    return route.fulfill({ status: reply.status, headers, body: reply.body })
+    const body = typeof reply.body === 'function' ? reply.body(JSON.parse(request.postData())) : reply.body
+    return route.fulfill({ status: reply.status, headers, body })
   })
 
   return {
@@ -91,16 +93,25 @@ export async function mockAnthropic(context) {
 
     /**
      * 다음 /v1/messages 요청에 스트리밍으로 답한다.
-     * json: 답의 글이 될 객체. blocks: 글 블록 하나가 아닌 답(대체 모델로 넘어간 경우 등)을 직접 줄 때.
+     * json: 답의 글이 될 객체. 앱이 보낸 요청을 보고 답을 정해야 하면(요청 글에 적힌 종목 key로 답할 때 등)
+     * 요청 본문을 받아 객체를 돌려주는 함수를 준다.
+     * blocks: 글 블록 하나가 아닌 답(대체 모델로 넘어간 경우 등)을 직접 줄 때.
+     * hold: true면 답을 붙잡아 두고, 돌려준 함수를 부를 때 보낸다. 기다리는 동안의 화면을 시간에 쫓기지 않고 볼 때 쓴다.
      */
-    replyWithMessage({ model, json, blocks, delayMs = 0 }) {
+    replyWithMessage({ model, json, blocks, delayMs = 0, hold = false }) {
       const usage = { input_tokens: 3500, output_tokens: 1800 }
+      const body = (answer) =>
+        sseBody({ model, blocks: blocks ?? [{ type: 'text', text: JSON.stringify(answer) }], usage })
+      let release = () => {}
+      const held = hold ? new Promise((resolve) => (release = resolve)) : null
       replies.push({
         status: 200,
         contentType: 'text/event-stream',
-        body: sseBody({ model, blocks: blocks ?? [{ type: 'text', text: JSON.stringify(json) }], usage }),
+        body: typeof json === 'function' ? (requestBody) => body(json(requestBody)) : body(json),
         delayMs,
+        held,
       })
+      return release
     },
 
     /** 다음 /v1/messages 요청에 오류로 답한다. */
