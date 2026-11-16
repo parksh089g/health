@@ -20,6 +20,14 @@ export interface Exercise {
   targetReps?: number | null
   /** 무게를 올릴 때의 단위(kg). 없으면 부위로 정한다(하체 5, 나머지 2.5). (2단계) */
   incrementKg?: number | null
+  /** 이 종목의 휴식 시간(초). 없으면 설정의 기본 휴식 시간을 쓴다. (4단계) */
+  restSeconds?: number | null
+  /** 종목 메모(시트 높이, 그립 같은 세팅). 운동 중 카드에 보인다. (4단계) */
+  note?: string | null
+  /** 세트를 무엇으로 재는지. 없으면 'reps'(횟수). 'time'이면 세트의 durationSec(초)를 쓴다. (4단계) */
+  measure?: 'reps' | 'time' | null
+  /** 숨긴 종목. 기록이 있는 종목은 지우는 대신 숨겨서 종목 선택에 나오지 않게 한다. (4단계) */
+  archived?: boolean
 }
 
 /** 하루 한 번의 운동 */
@@ -56,6 +64,18 @@ export interface SetEntry {
   reps: number | null
   isWarmup: boolean
   isDone: boolean
+  /** 힘든 정도(RPE) 6~10, 0.5 단위. 적지 않았으면 없음. (4단계) */
+  rpe?: number | null
+  /** 시간으로 재는 종목(플랭크 등)의 버틴 시간(초). 그런 종목이 아니면 없음. (4단계) */
+  durationSec?: number | null
+}
+
+/** 체중 기록. 하루에 하나만 둔다(같은 날 다시 적으면 덮어쓴다). (4단계) */
+export interface BodyWeight {
+  /** 로컬 시간 기준 YYYY-MM-DD (이 값이 id) */
+  date: string
+  weightKg: number
+  updatedAt: number
 }
 
 /** 루틴 안의 한 종목 */
@@ -113,6 +133,24 @@ export interface AiReview {
   suggestions: string[]
 }
 
+/** 운동을 마친 뒤의 AI 피드백 (4단계) */
+export interface AiWorkoutFeedback {
+  /** 한 줄 총평 */
+  headline: string
+  /** 짧은 항목 2~4개(잘한 점, 다음에 해 볼 것) */
+  points: string[]
+}
+
+/** AI에게 알려 두는 내 목표와 상황. 요청할 때마다 함께 보낸다. (4단계) */
+export interface AiProfile {
+  goal: 'hypertrophy' | 'strength' | 'fat-loss' | 'health' | null
+  experience: 'beginner' | 'intermediate' | 'advanced' | null
+  /** 주당 운동 횟수 목표. 정하지 않았으면 null */
+  daysPerWeek: number | null
+  /** 부상, 피하고 싶은 동작 등 자유롭게 적는 글 */
+  notes: string
+}
+
 /**
  * AI가 준 답. 다시 열어도 같은 답을 보도록(요금이 다시 나가지 않도록) 폰에 저장한다.
  * 기록에서 다시 만들 수 있으니 백업 파일에는 넣지 않는다. (3단계)
@@ -120,12 +158,13 @@ export interface AiReview {
 export type AiAdvice =
   | AiAdviceBase<'workout', AiWorkoutAdvice>
   | AiAdviceBase<'review', AiReview>
+  | AiAdviceBase<'feedback', AiWorkoutFeedback>
 
 interface AiAdviceBase<K extends string, D> {
-  /** 'workout:<운동 id>' 또는 'review'(가장 최근 분석 하나만 남긴다) */
+  /** 'workout:<운동 id>', 'feedback:<운동 id>' 또는 'review'(가장 최근 분석 하나만 남긴다) */
   id: string
   kind: K
-  /** 운동 추천이면 그 운동 id, 분석이면 null */
+  /** 운동 추천이나 피드백이면 그 운동 id, 분석이면 null */
   workoutId: string | null
   createdAt: number
   /** 실제로 답한 모델 */
@@ -143,6 +182,7 @@ export class HealthDB extends Dexie {
   settings!: Table<SettingRow, string>
   routines!: Table<Routine, string>
   aiAdvice!: Table<AiAdvice, string>
+  bodyWeights!: Table<BodyWeight, string>
 
   constructor(name = 'health-log') {
     super(name)
@@ -161,6 +201,10 @@ export class HealthDB extends Dexie {
     // 3단계: AI가 준 답을 저장하는 테이블 추가. 기존 테이블은 그대로다.
     this.version(3).stores({
       aiAdvice: 'id, kind, workoutId',
+    })
+    // 4단계: 체중 기록 테이블 추가. 종목과 세트에 붙은 새 필드는 인덱스가 아니라 그대로 둔다.
+    this.version(4).stores({
+      bodyWeights: 'date',
     })
   }
 }
