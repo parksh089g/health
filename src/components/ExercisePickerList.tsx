@@ -3,8 +3,7 @@ import type { BodyPart, Exercise } from '../db'
 import {
   BODY_PARTS,
   addCustomExercise,
-  bodyPartLabel,
-  equipmentLabel,
+  exerciseKindText,
   hiddenExercises,
   pickableExercises,
   restoreExercise,
@@ -103,7 +102,7 @@ export function ExercisePickerList({ exercises, addedIds, selected, onToggle, on
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-ink">{e.name}</span>
                     <span className="block text-sm text-muted">
-                      {bodyPartLabel(e.bodyPart)} · {equipmentLabel(e.equipment)}
+                      {exerciseKindText(e)}
                       {e.isCustom && ' · 내 종목'}
                     </span>
                   </span>
@@ -187,7 +186,7 @@ export function ExercisePickerList({ exercises, addedIds, selected, onToggle, on
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-ink">{e.name}</span>
                     <span className="block text-sm text-muted">
-                      {bodyPartLabel(e.bodyPart)} · {equipmentLabel(e.equipment)}
+                      {exerciseKindText(e)}
                       {e.isCustom && ' · 내 종목'}
                     </span>
                   </span>

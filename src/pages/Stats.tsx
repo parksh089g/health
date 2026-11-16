@@ -14,6 +14,7 @@ import { MonthCalendar } from '../components/MonthCalendar'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { bodyPartLabel } from '../lib/exercises'
 import { formatTime, formatVolume } from '../lib/format'
+import { recordLabel } from '../lib/history'
 import {
   addMonths,
   bodyPartSets,
@@ -325,7 +326,7 @@ function CalendarCard({ data, now }: { data: StatsData; now: number }) {
 }
 
 function ExerciseList({ data }: { data: StatsData }) {
-  const list = exerciseOverviews(data.sessionsByExercise)
+  const list = exerciseOverviews(data.sessionsByExercise, data.exercises)
   if (list.length === 0) return null
 
   return (
@@ -341,10 +342,12 @@ function ExerciseList({ data }: { data: StatsData }) {
             o.bestE1rm !== null
               ? { label: '추정 1RM', value: formatMetric('bestE1rm', o.bestE1rm) }
               : o.maxWeight !== null
-                ? { label: '최고 중량', value: formatMetric('topWeight', o.maxWeight) }
+                ? { label: recordLabel('maxWeight', ex), value: formatMetric('topWeight', o.maxWeight, ex) }
                 : o.maxReps !== null
                   ? { label: '최다 횟수', value: formatMetric('maxReps', o.maxReps) }
-                  : null
+                  : o.maxDuration !== null
+                    ? { label: '최장 시간', value: formatMetric('maxDuration', o.maxDuration) }
+                    : null
           return (
             <li key={o.exerciseId}>
               <Link

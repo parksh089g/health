@@ -2,6 +2,7 @@ import { db, type Exercise, type Routine, type RoutineItem } from '../db'
 import { TARGET_REPS_RANGE } from './exercises'
 import { toDateKey } from './format'
 import { newId } from './id'
+import { isTimed, setSeconds, TARGET_SECONDS_RANGE } from './measure'
 import { DEFAULT_SET_COUNT, addExerciseWithPrefill, getActiveWorkout } from './workouts'
 
 /**
@@ -14,6 +15,11 @@ export const ROUTINE_NAME_MAX = 30
 export const ROUTINE_SETS_RANGE = { min: 1, max: 10 } as const
 /** 목표 횟수로 받을 수 있는 범위(종목의 목표 횟수와 같다) */
 export const ROUTINE_REPS_RANGE = TARGET_REPS_RANGE
+/**
+ * 시간 종목의 목표 시간으로 받을 수 있는 범위(초).
+ * 루틴 종목(RoutineItem)에는 reps 칸 하나뿐이라, 시간 종목이면 그 칸을 목표 시간(초)으로 쓴다(lib/measure.ts).
+ */
+export const ROUTINE_SECONDS_RANGE = TARGET_SECONDS_RANGE
 /** 루틴에 새로 넣는 종목의 기본 세트 수 */
 export const ROUTINE_DEFAULT_SETS = DEFAULT_SET_COUNT
 
@@ -28,8 +34,9 @@ export interface RoutineInput {
 /**
  * 입력을 다듬고 확인한다. 이름의 앞뒤 공백을 지우고, 같은 종목이 두 번 있으면 처음 것만 남긴다.
  * 맞지 않는 값이 있으면 이유를 담아 오류를 던진다.
+ * timedIds: 시간 종목의 id. 이 종목들의 reps는 목표 시간(초)으로 보고 범위를 확인한다.
  */
-export function normalizeRoutineInput(input: RoutineInput): RoutineInput {
+export function normalizeRoutineInput(input: RoutineInput, timedIds: ReadonlySet<string> = new Set()): RoutineInput {
   const name = input.name.trim().replace(/\s+/g, ' ')
   if (name === '') throw new Error('루틴 이름을 입력해 주세요.')
   if (name.length > ROUTINE_NAME_MAX) throw new Error(`루틴 이름은 ${ROUTINE_NAME_MAX}자까지 쓸 수 있습니다.`)
@@ -44,8 +51,14 @@ export function normalizeRoutineInput(input: RoutineInput): RoutineInput {
     if (!(Number.isInteger(sets) && sets >= ROUTINE_SETS_RANGE.min && sets <= ROUTINE_SETS_RANGE.max)) {
       throw new Error(`세트 수는 ${ROUTINE_SETS_RANGE.min}~${ROUTINE_SETS_RANGE.max}세트로 정해 주세요.`)
     }
-    if (reps !== null && !(Number.isInteger(reps) && reps >= ROUTINE_REPS_RANGE.min && reps <= ROUTINE_REPS_RANGE.max)) {
-      throw new Error(`목표 횟수는 ${ROUTINE_REPS_RANGE.min}~${ROUTINE_REPS_RANGE.max}회로 정하거나 비워 두세요.`)
+    const timed = timedIds.has(item.exerciseId)
+    const range = timed ? ROUTINE_SECONDS_RANGE : ROUTINE_REPS_RANGE
+    if (reps !== null && !(Number.isInteger(reps) && reps >= range.min && reps <= range.max)) {
+      throw new Error(
+        timed
+          ? `목표 시간은 ${range.min}~${range.max}초로 정하거나 비워 두세요.`
+          : `목표 횟수는 ${range.min}~${range.max}회로 정하거나 비워 두세요.`,
+      )
     }
     items.push({ exerciseId: item.exerciseId, sets, reps })
   }
@@ -53,9 +66,16 @@ export function normalizeRoutineInput(input: RoutineInput): RoutineInput {
   return { name, items }
 }
 
+/** 루틴에 든 종목 중 시간 종목의 id */
+async function timedIdsOf(items: RoutineItem[]): Promise<Set<string>> {
+  const ids = items.map((item) => item.exerciseId).filter((id) => typeof id === 'string' && id !== '')
+  const exercises = await db.exercises.bulkGet(ids)
+  return new Set(exercises.flatMap((e) => (e && isTimed(e) ? [e.id] : [])))
+}
+
 /** 루틴을 만든다. 만든 루틴의 id를 돌려준다. */
 export async function createRoutine(input: RoutineInput, now: number = Date.now()): Promise<string> {
-  const { name, items } = normalizeRoutineInput(input)
+  const { name, items } = normalizeRoutineInput(input, await timedIdsOf(input.items))
   const id = newId()
   await db.routines.add({ id, name, items, createdAt: now, updatedAt: now, lastUsedAt: null })
   return id
@@ -63,7 +83,7 @@ export async function createRoutine(input: RoutineInput, now: number = Date.now(
 
 /** 루틴의 이름과 종목을 바꾼다. 만든 시각과 마지막으로 쓴 시각은 그대로 둔다. */
 export async function updateRoutine(id: string, input: RoutineInput, now: number = Date.now()): Promise<void> {
-  const { name, items } = normalizeRoutineInput(input)
+  const { name, items } = normalizeRoutineInput(input, await timedIdsOf(input.items))
   const updated = await db.routines.update(id, { name, items, updatedAt: now })
   if (updated === 0 && !(await db.routines.get(id))) throw new Error('루틴을 찾을 수 없습니다.')
 }
@@ -123,7 +143,7 @@ export function summarizeNames(names: string[], max = 2): string {
 }
 
 /**
- * 루틴으로 운동을 시작한다. 세트는 지난번 값으로 미리 채우고, 본 세트 수와 목표 횟수는 루틴을 따른다.
+ * 루틴으로 운동을 시작한다. 세트는 지난번 값으로 미리 채우고, 본 세트 수와 목표 횟수(시간 종목은 목표 시간)는 루틴을 따른다.
  * 지워진 종목은 건너뛴다. 진행 중인 운동이 있으면 아무것도 만들지 않고 그 운동을 돌려준다.
  */
 export async function startWorkoutFromRoutine(
@@ -163,6 +183,7 @@ function clamp(n: number, range: { min: number; max: number }): number {
  * 운동 기록을 루틴으로 저장한다. 새 루틴의 id를 돌려준다.
  * 종목은 기록의 순서대로 넣고, 세트 수는 완료한 본 세트(웜업 제외) 수(최소 1),
  * 목표 횟수는 그 운동의 목표 횟수, 없으면 첫 완료 본 세트의 횟수로 정한다. 지워진 종목은 뺀다.
+ * 시간 종목은 같은 방식으로 목표 시간(초)을 정한다(그 운동의 목표 시간, 없으면 첫 완료 본 세트의 시간).
  */
 export async function saveWorkoutAsRoutine(workoutId: string, name: string, now: number = Date.now()): Promise<string> {
   const items = await db.transaction('r', [db.workouts, db.workoutExercises, db.sets, db.exercises], async () => {
@@ -172,19 +193,21 @@ export async function saveWorkoutAsRoutine(workoutId: string, name: string, now:
     const result: RoutineItem[] = []
     for (const [i, we] of wes.entries()) {
       if (!exercises[i]) continue
+      const timed = isTimed(exercises[i])
       const sets = await db.sets.where('workoutExerciseId').equals(we.id).sortBy('order')
       const working = sets.filter((s) => s.isDone && !s.isWarmup)
-      const firstReps = working[0]?.reps
+      const first = working[0]
+      const firstAmount = first === undefined ? null : timed ? setSeconds(first) : first.reps
       const reps =
         typeof we.targetReps === 'number'
           ? we.targetReps
-          : typeof firstReps === 'number' && firstReps > 0
-            ? firstReps
+          : typeof firstAmount === 'number' && firstAmount > 0
+            ? firstAmount
             : null
       result.push({
         exerciseId: we.exerciseId,
         sets: clamp(working.length, ROUTINE_SETS_RANGE),
-        reps: reps === null ? null : clamp(Math.round(reps), ROUTINE_REPS_RANGE),
+        reps: reps === null ? null : clamp(Math.round(reps), timed ? ROUTINE_SECONDS_RANGE : ROUTINE_REPS_RANGE),
       })
     }
     return result

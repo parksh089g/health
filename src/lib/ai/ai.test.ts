@@ -75,9 +75,9 @@ describe('운동 추천 요청 글', () => {
 
     const ctx = await buildWorkoutContext(today.id, NOW)
     expect(ctx.items.map((i) => i.key)).toEqual(['E1', 'E2', 'E3'])
-    expect(ctx.items[0]).toMatchObject({ workoutExerciseId: today.weIds[BENCH], fromWeightKg: 60, bodyweight: false })
-    expect(ctx.items[1]).toMatchObject({ fromWeightKg: null, bodyweight: true })
-    expect(ctx.items[2]).toMatchObject({ fromWeightKg: null, bodyweight: false })
+    expect(ctx.items[0]).toMatchObject({ workoutExerciseId: today.weIds[BENCH], fromWeightKg: 60, bodyweight: false, addedWeight: false })
+    expect(ctx.items[1]).toMatchObject({ fromWeightKg: null, bodyweight: true, addedWeight: false })
+    expect(ctx.items[2]).toMatchObject({ fromWeightKg: null, bodyweight: false, addedWeight: false })
 
     const p = ctx.prompt
     expect(p).toContain('오늘: 2026-11-16(월)')
@@ -101,9 +101,9 @@ describe('운동 추천 요청 글', () => {
 
 describe('운동 추천 답 읽기', () => {
   const items: WorkoutContextItem[] = [
-    { key: 'E1', workoutExerciseId: 'we-bench', fromWeightKg: 60, bodyweight: false },
-    { key: 'E2', workoutExerciseId: 'we-pull', fromWeightKg: null, bodyweight: true },
-    { key: 'E3', workoutExerciseId: 'we-squat', fromWeightKg: 100, bodyweight: false },
+    { key: 'E1', workoutExerciseId: 'we-bench', fromWeightKg: 60, bodyweight: false, addedWeight: false },
+    { key: 'E2', workoutExerciseId: 'we-pull', fromWeightKg: null, bodyweight: true, addedWeight: false },
+    { key: 'E3', workoutExerciseId: 'we-squat', fromWeightKg: 100, bodyweight: false, addedWeight: false },
   ]
 
   it('key를 종목으로 바꾸고 이상한 답은 버린다', () => {
@@ -124,6 +124,27 @@ describe('운동 추천 답 읽기', () => {
     expect(advice.exercises).toEqual([
       { workoutExerciseId: 'we-bench', weightKg: 62.5, reps: 8, reason: '지난번 모두 채웠어요', fromWeightKg: 60 },
       { workoutExerciseId: 'we-pull', weightKg: null, reps: 11, reason: '맨몸은 무게를 없앤다', fromWeightKg: null },
+    ])
+  })
+
+  it('추가 무게를 쓰는 맨몸 종목은 무게를 받고, 무게 없는 답도 받는다', () => {
+    const weighted: WorkoutContextItem[] = [
+      { key: 'E1', workoutExerciseId: 'we-pull', fromWeightKg: 10, bodyweight: true, addedWeight: true },
+      { key: 'E2', workoutExerciseId: 'we-dips', fromWeightKg: 5, bodyweight: true, addedWeight: true },
+    ]
+    const advice = parseWorkoutAdvice(
+      {
+        summary: '',
+        exercises: [
+          { key: 'E1', weightKg: 12.5, reps: 5, reason: '추가 무게를 올려요' },
+          { key: 'E2', weightKg: null, reps: 12, reason: '오늘은 맨몸으로 해요' },
+        ],
+      },
+      weighted,
+    )
+    expect(advice.exercises).toEqual([
+      { workoutExerciseId: 'we-pull', weightKg: 12.5, reps: 5, reason: '추가 무게를 올려요', fromWeightKg: 10 },
+      { workoutExerciseId: 'we-dips', weightKg: null, reps: 12, reason: '오늘은 맨몸으로 해요', fromWeightKg: 5 },
     ])
   })
 

@@ -347,7 +347,7 @@ describe('추천 적용', () => {
   it('오늘의 목표 횟수(루틴에서 온 값)를 쓴다', async () => {
     await record(10_000, BENCH, [[60, 8], [60, 8], [60, 6]])
     const id = await startWorkout(20_000)
-    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, () =>
+    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, db.exercises, () =>
       addExerciseWithPrefill(id, BENCH, 0, { setCount: 3, targetReps: 6 }),
     )
     const recs = await getWorkoutRecommendations(id)

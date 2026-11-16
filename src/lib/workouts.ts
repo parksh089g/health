@@ -1,6 +1,7 @@
 import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { startOfWeek, toDateKey } from './format'
 import { newId } from './id'
+import { isSetEntered, isTimed, setSeconds } from './measure'
 
 /** 지난 기록이 없는 종목을 추가할 때 만드는 빈 세트 수 */
 export const DEFAULT_SET_COUNT = 3
@@ -34,7 +35,10 @@ export interface WorkoutSummary {
   volume: number
 }
 
-/** 볼륨(중량×횟수). 완료한 본 세트만 센다. */
+/**
+ * 볼륨(중량×횟수). 완료한 본 세트만 센다.
+ * 맨몸 종목은 추가 무게×횟수만 들어가고(체중은 모른다), 시간 세트는 횟수가 없어 0이다.
+ */
 export function setVolume(s: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>): number {
   if (!s.isDone || s.isWarmup) return 0
   return (s.weightKg ?? 0) * (s.reps ?? 0)
@@ -91,22 +95,36 @@ export interface PrefillOptions {
    * (모자라면 마지막 본 세트 값을 되풀이하고, 남으면 뒤를 버린다). 루틴으로 시작할 때 쓴다.
    */
   setCount?: number
-  /** 이 운동에서의 목표 횟수(WorkoutExercise.targetReps) */
+  /** 이 운동에서의 목표 횟수(WorkoutExercise.targetReps). 시간 종목이면 목표 시간(초) */
   targetReps?: number | null
 }
 
-type SetTemplate = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup'>
+type SetTemplate = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'durationSec'>
 
 const EMPTY_SET: SetTemplate = { weightKg: null, reps: null, isWarmup: false }
 
 /**
  * 지난 세트로 새 세트의 틀을 만든다.
- * 무게, 횟수, 웜업 여부만 따라간다. RPE는 그날 그 세트가 어땠는지를 적은 값이라 가져오지 않는다.
+ * 무게, 횟수(시간 세트면 시간), 웜업 여부만 따라간다. RPE는 그날 그 세트가 어땠는지를 적은 값이라 가져오지 않는다.
+ * timed: 시간 종목인지. 지난 기록이 없을 때 목표 값을 횟수와 시간 중 어디에 채울지 정한다.
  */
-export function prefillTemplate(last: SetEntry[], setCount?: number, targetReps?: number | null): SetTemplate[] {
-  const toTemplate = (s: SetEntry): SetTemplate => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup })
-  // 지난 기록이 없을 때 빈 세트. 루틴에 목표 횟수가 있으면 횟수만 미리 채운다.
-  const empty: SetTemplate = { ...EMPTY_SET, reps: targetReps ?? null }
+export function prefillTemplate(
+  last: SetEntry[],
+  setCount?: number,
+  targetReps?: number | null,
+  timed = false,
+): SetTemplate[] {
+  const toTemplate = (s: SetEntry): SetTemplate => {
+    const seconds = setSeconds(s)
+    // 횟수 세트에는 durationSec 칸을 만들지 않는다(시간 종목이 생기기 전의 세트와 같은 모양으로 둔다).
+    return seconds > 0
+      ? { weightKg: s.weightKg, reps: null, durationSec: seconds, isWarmup: s.isWarmup }
+      : { weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup }
+  }
+  // 지난 기록이 없을 때 빈 세트. 루틴에 목표 횟수(시간 종목은 목표 시간)가 있으면 그 값만 미리 채운다.
+  const empty: SetTemplate = timed
+    ? { ...EMPTY_SET, durationSec: targetReps ?? null }
+    : { ...EMPTY_SET, reps: targetReps ?? null }
   if (setCount === undefined) {
     return last.length > 0 ? last.map(toTemplate) : Array.from({ length: DEFAULT_SET_COUNT }, () => ({ ...empty }))
   }
@@ -119,7 +137,7 @@ export function prefillTemplate(last: SetEntry[], setCount?: number, targetReps?
 
 /**
  * 운동에 종목 하나를 넣고 세트를 지난번 값으로 미리 채운다. 넣은 WorkoutExercise의 id를 돌려준다.
- * 트랜잭션 안에서 불러야 한다(workoutExercises, sets, workouts 테이블).
+ * 트랜잭션 안에서 불러야 한다(workoutExercises, sets, workouts, exercises 테이블).
  */
 export async function addExerciseWithPrefill(
   workoutId: string,
@@ -133,7 +151,8 @@ export async function addExerciseWithPrefill(
   await db.workoutExercises.add(we)
 
   const last = await getLastSets(exerciseId, workoutId)
-  const template = prefillTemplate(last, opts.setCount, opts.targetReps)
+  const timed = isTimed(await db.exercises.get(exerciseId))
+  const template = prefillTemplate(last, opts.setCount, opts.targetReps, timed)
   await db.sets.bulkAdd(
     template.map((t, i) => ({ id: newId(), workoutExerciseId: weId, order: i, ...t, isDone: false })),
   )
@@ -145,7 +164,7 @@ export async function addExerciseWithPrefill(
  * 이미 들어 있는 종목은 건너뛴다.
  */
 export async function addExercisesToWorkout(workoutId: string, exerciseIds: string[]): Promise<void> {
-  await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, async () => {
+  await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, db.exercises, async () => {
     const existing = await db.workoutExercises.where('workoutId').equals(workoutId).toArray()
     const have = new Set(existing.map((we) => we.exerciseId))
     let order = existing.reduce((max, we) => Math.max(max, we.order), -1) + 1
@@ -186,12 +205,12 @@ export async function moveWorkoutExercise(workoutExerciseId: string, direction: 
   })
 }
 
-/** 세트를 하나 더한다. 무게와 횟수는 바로 앞 세트를 따라간다(RPE는 따라가지 않는다). */
+/** 세트를 하나 더한다. 무게와 횟수(시간 세트면 시간)는 바로 앞 세트를 따라간다(RPE는 따라가지 않는다). */
 export async function addSet(workoutExerciseId: string, opts: { done?: boolean } = {}): Promise<void> {
   await db.transaction('rw', db.sets, async () => {
     const sets = await db.sets.where('workoutExerciseId').equals(workoutExerciseId).sortBy('order')
     const last = sets.at(-1)
-    await db.sets.add({
+    const set: SetEntry = {
       id: newId(),
       workoutExerciseId,
       order: last ? last.order + 1 : 0,
@@ -199,7 +218,9 @@ export async function addSet(workoutExerciseId: string, opts: { done?: boolean }
       reps: last?.reps ?? null,
       isWarmup: false,
       isDone: opts.done ?? false,
-    })
+    }
+    if (last && setSeconds(last) > 0) set.durationSec = setSeconds(last)
+    await db.sets.add(set)
   })
 }
 
@@ -218,20 +239,20 @@ export async function removeSet(setId: string): Promise<void> {
 /** 세트 값을 고친다. RPE는 6~10의 0.5 단위만 받고, 그 밖의 값은 "적지 않음"(null)으로 저장한다. */
 export async function updateSet(
   id: string,
-  patch: Partial<Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'rpe'>>,
+  patch: Partial<Pick<SetEntry, 'weightKg' | 'reps' | 'durationSec' | 'isWarmup' | 'isDone' | 'rpe'>>,
 ): Promise<void> {
   const invalidRpe = patch.rpe !== undefined && patch.rpe !== null && !isValidRpe(patch.rpe)
   await db.sets.update(id, invalidRpe ? { ...patch, rpe: null } : patch)
 }
 
 /**
- * 세트를 완료로 표시한다. 저장된 횟수가 없으면 표시하지 않고 false를 돌려준다.
+ * 세트를 완료로 표시한다. 저장된 횟수(시간 세트면 시간)가 없으면 표시하지 않고 false를 돌려준다.
  * 화면에 그려진 값이 아니라 저장된 값으로 판단하므로, 방금 입력한 횟수가 화면에 돌아오기 전에 불러도 맞게 동작한다.
  */
 export async function completeSet(id: string): Promise<boolean> {
   return db.transaction('rw', db.sets, async () => {
     const set = await db.sets.get(id)
-    if (!set || (set.reps ?? 0) <= 0) return false
+    if (!set || !isSetEntered(set)) return false
     if (!set.isDone) await db.sets.update(id, { isDone: true })
     return true
   })
@@ -253,11 +274,11 @@ async function setsOfWorkout(workoutId: string): Promise<{ wes: WorkoutExercise[
   return { wes, sets }
 }
 
-/** 횟수를 적었지만 완료 체크를 하지 않은 세트를 모두 완료로 바꾼다. 바꾼 개수를 돌려준다. */
+/** 횟수나 시간을 적었지만 완료 체크를 하지 않은 세트를 모두 완료로 바꾼다. 바꾼 개수를 돌려준다. */
 export async function markEnteredSetsDone(workoutId: string): Promise<number> {
   return db.transaction('rw', db.workoutExercises, db.sets, async () => {
     const { sets } = await setsOfWorkout(workoutId)
-    const targets = sets.filter((s) => !s.isDone && (s.reps ?? 0) > 0)
+    const targets = sets.filter((s) => !s.isDone && isSetEntered(s))
     await db.sets.bulkUpdate(targets.map((s) => ({ key: s.id, changes: { isDone: true } })))
     return targets.length
   })
@@ -306,7 +327,7 @@ export async function repeatWorkout(
   sourceWorkoutId: string,
   now: number = Date.now(),
 ): Promise<{ id: string; created: boolean }> {
-  return db.transaction('rw', db.workouts, db.workoutExercises, db.sets, async () => {
+  return db.transaction('rw', db.workouts, db.workoutExercises, db.sets, db.exercises, async () => {
     const active = await getActiveWorkout()
     if (active) return { id: active.id, created: false }
 

@@ -35,27 +35,32 @@ describe('CSV 칸', () => {
 describe('CSV 내보내기', () => {
   it('끝난 운동의 완료 세트만 한 줄씩 쓴다', async () => {
     const id = await startWorkout(new Date(2026, 10, 16, 19, 5).getTime())
-    await addExercisesToWorkout(id, ['seed:squat', 'seed:pull-up'])
+    await addExercisesToWorkout(id, ['seed:squat', 'seed:pull-up', 'seed:plank'])
     const detail = await loadWorkoutDetail(id)
-    const [squat, pullUp] = detail!.items
+    const [squat, pullUp, plank] = detail!.items
     await updateSet(squat.sets[0].id, { weightKg: 20, reps: 10, isWarmup: true, isDone: true })
     await updateSet(squat.sets[1].id, { weightKg: 60, reps: 8, isDone: true, rpe: 8.5 })
     await updateSet(squat.sets[2].id, { weightKg: 62.5, reps: 6 }) // 완료 안 함
     await updateSet(pullUp.sets[0].id, { reps: 10, isDone: true })
+    await updateSet(pullUp.sets[1].id, { weightKg: 10, reps: 5, isDone: true }) // 추가 무게
+    await updateSet(plank.sets[0].id, { durationSec: 60, isDone: true })
     await finishWorkout(id, { memo: '컨디션 좋음, 다음엔 65', endedAt: Date.now() })
     await startWorkout() // 진행 중인 운동은 빠진다
 
     const lines = parseLines(await exportCsv())
     expect(lines).toEqual([
       CSV_COLUMNS.join(','),
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,8.5,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,,8.5,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,풀업,등,맨몸,2,,10,5,,,"컨디션 좋음, 다음엔 65"',
+      // 시간 종목은 횟수 칸을 비우고 시간(초) 칸에 적는다.
+      '2026-11-16,오후 7:05,플랭크,코어,맨몸,1,,,,60,,"컨디션 좋음, 다음엔 65"',
     ])
   })
 
-  it('RPE 칸은 횟수 다음, 운동 메모 앞에 있다', () => {
-    expect(CSV_COLUMNS.slice(-3)).toEqual(['횟수', 'RPE', '운동 메모'])
+  it('시간(초) 칸은 횟수 다음, RPE와 운동 메모 앞에 있다', () => {
+    expect(CSV_COLUMNS.slice(-4)).toEqual(['횟수', '시간(초)', 'RPE', '운동 메모'])
   })
 
   it('기록이 없으면 머리줄만 있다', async () => {

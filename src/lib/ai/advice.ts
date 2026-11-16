@@ -8,7 +8,14 @@ import {
 } from '../../db'
 import { getAiApiKey } from '../settings'
 import { AiError, askClaudeJson } from './client'
-import { buildFeedbackContext, buildReviewContext, buildWorkoutContext, NO_ADVICE_KEY, type WorkoutContextItem } from './context'
+import {
+  ADDED_WEIGHT_NOTE,
+  buildFeedbackContext,
+  buildReviewContext,
+  buildWorkoutContext,
+  NO_ADVICE_KEY,
+  type WorkoutContextItem,
+} from './context'
 import { addAiUsage, getAiModel } from './models'
 
 /** 오늘 운동 추천을 저장하는 id */
@@ -21,7 +28,9 @@ export const feedbackAdviceId = (workoutId: string) => `feedback:${workoutId}`
 const SHARED_GUIDE = `기록 읽는 법:
 - "내 정보"는 사용자가 설정에 적어 둔 목표, 운동 경력, 주당 운동 목표, 참고할 점과 최근 체중입니다. 있으면 답에 반영하고, 참고할 점에 적힌 부상이나 피하고 싶은 동작은 꼭 지키세요.
 - 세트 뒤의 (RPE n)은 사용자가 적은 힘든 정도입니다(10이 더 못 하는 한계, 8이면 2회쯤 더 할 수 있었음). 적지 않은 세트가 많으니 있을 때만 참고하세요.
-- "종목 메모"는 사용자가 그 종목에 적어 둔 세팅(시트 높이, 그립 등)입니다.`
+- "종목 메모"는 사용자가 그 종목에 적어 둔 세팅(시트 높이, 그립 등)입니다.
+- 맨몸 종목의 "+10kg×8"은 몸에 10kg을 더 달고 8회 했다는 뜻이고, 무게 없이 "10회"라고만 적힌 세트는 맨몸으로 한 세트입니다. 체중은 볼륨에 들어 있지 않습니다.
+- "45초"처럼 초로 적힌 세트는 시간으로 재는 종목(플랭크 등)에서 버틴 시간입니다. 이런 종목에는 횟수, 볼륨, 추정 1RM이 없습니다.`
 
 // ───────── 운동 추천
 
@@ -31,7 +40,7 @@ export const WORKOUT_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코�
 - 앱의 규칙 추천(목표 횟수를 모든 본 세트에서 채우면 증량 단위만큼 올리고, 못 채우면 같은 무게)을 출발점으로 삼으세요. 기록의 흐름(정체, 빠른 성장, 오래 쉰 기간, 메모에 적힌 컨디션, 오늘 이미 끝낸 세트)을 보고 더 나은 값이 있으면 바꿔도 됩니다.
 - 무게는 한 번에 크게 올리지 말고, 그 종목의 증량 단위의 배수로 맞추세요.
 - 오랜만에 하는 운동이거나 메모에 통증이나 피로가 있으면 보수적으로 정하세요.
-- 맨몸 종목은 weightKg를 null로 두고 횟수만 정하세요.
+- 맨몸 종목은 weightKg를 null로 두고 횟수만 정하세요. 다만 머리말에 "${ADDED_WEIGHT_NOTE}"이 붙은 맨몸 종목은 추가 무게를 달고 하는 종목이니, 무게 종목처럼 weightKg에 추가 무게(kg)를 넣어 제안하세요. 추가 무게 없이 맨몸으로 하라고 제안할 때만 null로 둡니다.
 - 지난 기록이 없는 종목은 오늘 세트에 적힌 값을 따르세요. 무게가 비어 있으면 weightKg를 null로 두고, 가벼운 무게로 자세를 익히라고 이유에 적으세요.
 - 오늘 본 세트를 이미 모두 끝낸 종목도 넣고, 이유에는 다음 운동 때의 기준을 적으세요.
 - RPE가 낮았던(여유가 있던) 종목은 올리는 쪽으로, 목표 횟수를 채웠어도 RPE가 10에 가까웠으면 같은 무게를 한 번 더 하는 쪽으로 기울이세요.
@@ -104,7 +113,8 @@ export function parseWorkoutAdvice(raw: unknown, items: WorkoutContextItem[]): A
     seen.add(e.key)
     exercises.push({
       workoutExerciseId: item.workoutExerciseId,
-      weightKg: item.bodyweight ? null : weight,
+      // 맨몸 종목은 추가 무게를 쓰는 경우(오늘 세트나 지난 기록에 무게가 있을 때)에만 무게를 받는다.
+      weightKg: item.bodyweight && !item.addedWeight ? null : weight,
       reps,
       reason: text(e.reason, 200),
       fromWeightKg: item.fromWeightKg,

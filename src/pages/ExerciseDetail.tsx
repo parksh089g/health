@@ -11,13 +11,12 @@ import { PageHeader } from '../components/PageHeader'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { db, type Exercise } from '../db'
 import {
-  bodyPartLabel,
-  equipmentLabel,
   EXERCISE_NOTE_MAX,
+  exerciseKindText,
   incrementFor,
   INCREMENT_RANGE,
   restoreExercise,
-  TARGET_REPS_RANGE,
+  targetRange,
   updateExerciseGoal,
   updateExerciseNote,
   updateExerciseRest,
@@ -28,10 +27,12 @@ import {
   E1RM_MAX_REPS,
   formatRecordValue,
   getExerciseSessions,
-  RECORD_LABELS,
+  recordLabel,
   type ExerciseRecords,
   type RecordKind,
 } from '../lib/history'
+import { formatWeight, isTimed, measureOf, targetLabel, usesAddedWeight } from '../lib/measure'
+import { TIME_STEP_SECONDS } from '../lib/recommend'
 import {
   availableMetrics,
   exerciseSeries,
@@ -39,7 +40,7 @@ import {
   formatMetric,
   formatMonthDay,
   formatSetsSummary,
-  METRIC_LABELS,
+  metricLabel,
   metricValue,
   type ProgressMetric,
   type SessionPoint,
@@ -85,7 +86,7 @@ export default function ExerciseDetail() {
   }
 
   const points = exerciseSeries(sessions)
-  const kind = `${bodyPartLabel(exercise.bodyPart)} · ${equipmentLabel(exercise.equipment)}`
+  const kind = exerciseKindText(exercise)
   const subtitle = exercise.isCustom ? `${kind} · 내 종목` : kind
 
   return (
@@ -133,15 +134,16 @@ export default function ExerciseDetail() {
           </p>
         ) : (
           <>
-            <RecordsCard records={computeRecords(sessions)} />
-            <ProgressCard key={`progress-${exercise.id}`} points={points} />
-            <RecentSessions key={`recent-${exercise.id}`} points={points} />
+            <RecordsCard records={computeRecords(sessions, exercise)} exercise={exercise} />
+            <ProgressCard key={`progress-${exercise.id}`} points={points} exercise={exercise} />
+            <RecentSessions key={`recent-${exercise.id}`} points={points} exercise={exercise} />
           </>
         )}
         {/* 머리줄(sticky)에 가리지 않게 여백을 두고 멈춘다. */}
         <div ref={settingsRef} className="scroll-mt-[calc(4rem+env(safe-area-inset-top))]">
           <NoteCard key={`note-${exercise.id}`} exercise={exercise} />
-          <GoalCard key={`goal-${exercise.id}`} exercise={exercise} />
+          {/* 횟수와 시간을 바꾸면 목표 칸의 뜻과 값이 달라지므로 새로 그린다. */}
+          <GoalCard key={`goal-${exercise.id}-${measureOf(exercise)}`} exercise={exercise} />
           <RestCard key={`rest-${exercise.id}`} exercise={exercise} defaultSeconds={defaultRest} />
           <section aria-labelledby="manage-title" className="mt-6">
             <h2 id="manage-title" className="font-bold text-ink">
@@ -165,9 +167,10 @@ export default function ExerciseDetail() {
 }
 
 /** 개인 기록을 보여 줄 순서 */
-const RECORD_ORDER: RecordKind[] = ['bestE1rm', 'maxWeight', 'sessionVolume', 'maxReps']
+const RECORD_ORDER: RecordKind[] = ['bestE1rm', 'maxWeight', 'sessionVolume', 'maxReps', 'maxDuration']
 
-function RecordsCard({ records }: { records: ExerciseRecords }) {
+function RecordsCard({ records, exercise }: { records: ExerciseRecords; exercise: Exercise }) {
+  const addedWeight = usesAddedWeight(exercise)
   const rows = RECORD_ORDER.flatMap((kind) => {
     const r = records[kind]
     return r ? [r] : []
@@ -186,22 +189,27 @@ function RecordsCard({ records }: { records: ExerciseRecords }) {
               ? `${formatKg(s.weightKg ?? 0)}kg × ${s.reps}회로 계산`
               : s && r.kind === 'maxWeight'
                 ? `${s.reps}회`
-                : null
+                : // 무게를 달고 버틴 기록이면 그 무게를 함께 보여 준다.
+                  s && r.kind === 'maxDuration' && (s.weightKg ?? 0) > 0
+                  ? formatWeight(s.weightKg ?? 0, addedWeight)
+                  : null
+          const label = recordLabel(r.kind, exercise)
+          const value = formatRecordValue(r.kind, r.value, exercise)
           return (
             <li key={r.kind}>
               <Link
                 to={`/history/${r.workoutId}`}
-                aria-label={`${RECORD_LABELS[r.kind]} ${formatRecordValue(r.kind, r.value)}, ${formatFullDate(r.at)}. 그날 기록 보기`}
+                aria-label={`${label} ${value}, ${formatFullDate(r.at)}. 그날 기록 보기`}
                 className="flex min-h-16 items-center gap-3 px-4 py-3 active:bg-surface-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-muted">{RECORD_LABELS[r.kind]}</p>
+                  <p className="text-sm text-muted">{label}</p>
                   <p className="mt-0.5 truncate text-xs text-muted">
                     {formatMonthDay(r.at)}
                     {detail && ` · ${detail}`}
                   </p>
                 </div>
-                <p className="shrink-0 text-xl font-bold text-ink">{formatRecordValue(r.kind, r.value)}</p>
+                <p className="shrink-0 text-xl font-bold text-ink">{value}</p>
                 <ChevronRightIcon className="size-5 shrink-0 text-muted" />
               </Link>
             </li>
@@ -212,15 +220,26 @@ function RecordsCard({ records }: { records: ExerciseRecords }) {
   )
 }
 
-/** 처음 기록보다 얼마나 늘었는지. "+12.5kg", "-2회", "같음" */
+/** 처음 기록보다 얼마나 늘었는지. "+12.5kg", "-2회", "+15초", "같음" */
 function formatChange(metric: ProgressMetric, diff: number): string {
   const rounded = metric === 'bestE1rm' ? Math.round(diff * 10) / 10 : diff
   if (Math.abs(rounded) < 1e-9) return '같음'
   return `${rounded > 0 ? '+' : '−'}${formatMetric(metric, Math.abs(rounded))}`
 }
 
-function ProgressCard({ points }: { points: SessionPoint[] }) {
-  const metrics = availableMetrics(points)
+/** 그래프 아래에 붙이는, 그 값을 어떻게 셌는지에 대한 설명 */
+function metricHint(metric: ProgressMetric, addedWeight: boolean): string {
+  if (metric === 'bestE1rm') return `추정 1RM은 ${E1RM_MAX_REPS}회 이하 세트로 계산합니다(Epley 공식).`
+  if (metric === 'volume') return '볼륨은 웜업을 뺀 세트의 중량×횟수 합입니다.'
+  if (metric === 'maxReps') return '무게 없이 한 세트 중 가장 많은 횟수입니다.'
+  if (metric === 'maxDuration') return '웜업을 뺀 세트 중 가장 오래 버틴 시간입니다.'
+  if (metric === 'totalDuration') return '웜업을 뺀 세트의 시간을 모두 더한 값입니다.'
+  return addedWeight ? '웜업을 뺀 세트 중 가장 무거운 추가 무게입니다.' : '웜업을 뺀 세트 중 가장 무거운 무게입니다.'
+}
+
+function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: Exercise }) {
+  const addedWeight = usesAddedWeight(exercise)
+  const metrics = availableMetrics(points, exercise)
   const [chosen, setChosen] = useState<ProgressMetric | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
   const metric = chosen !== null && metrics.includes(chosen) ? chosen : metrics.at(0)
@@ -235,9 +254,11 @@ function ProgressCard({ points }: { points: SessionPoint[] }) {
   const selected = found >= 0 ? found : series.length - 1
   const sel = series[selected]
   const first = series[0]
-  const label = METRIC_LABELS[metric]
+  const label = metricLabel(metric, exercise)
   const values = series.map((s) => s.v)
-  const valueText = (i: number) => `${formatFullDate(series[i].t)}, ${label} ${formatMetric(metric, series[i].v)}`
+  const format = (v: number) => formatMetric(metric, v, exercise)
+  const valueText = (i: number) => `${formatFullDate(series[i].t)}, ${label} ${format(series[i].v)}`
+  const unit = metric === 'maxReps' ? '회' : metric === 'maxDuration' || metric === 'totalDuration' ? '초' : 'kg'
 
   return (
     <section aria-labelledby="progress-title" className="mt-6">
@@ -250,13 +271,13 @@ function ProgressCard({ points }: { points: SessionPoint[] }) {
             label="그래프로 볼 값"
             value={metric}
             onChange={setChosen}
-            options={metrics.map((m) => ({ value: m, label: METRIC_LABELS[m] }))}
+            options={metrics.map((m) => ({ value: m, label: metricLabel(m, exercise) }))}
           />
         )}
         <div className={metrics.length > 1 ? 'mt-3' : ''}>
           <ChartReadout
-            value={formatMetric(metric, sel.v)}
-            label={`${formatDayOfYear(sel.t)} · ${formatSetsSummary(sel.p.sets)}`}
+            value={format(sel.v)}
+            label={`${formatDayOfYear(sel.t)} · ${formatSetsSummary(sel.p.sets, { addedWeight })}`}
             aside={
               series.length > 1 && (
                 <>
@@ -276,22 +297,15 @@ function ProgressCard({ points }: { points: SessionPoint[] }) {
             selected={selected}
             active={found >= 0}
             onSelect={(i) => setPicked(series[i].p.workoutId)}
-            name={`${label} 그래프. ${series.length}회 기록, 최저 ${formatMetric(metric, Math.min(...values))}, 최고 ${formatMetric(metric, Math.max(...values))}`}
+            name={`${label} 그래프. ${series.length}회 기록, 최저 ${format(Math.min(...values))}, 최고 ${format(Math.max(...values))}`}
             valueText={valueText}
-            unit={metric === 'maxReps' ? '회' : 'kg'}
-            integer={metric === 'maxReps'}
+            unit={unit}
+            integer={unit !== 'kg'}
           />
         </div>
         <div className="mt-1 flex items-start justify-between gap-3">
           <p className="text-xs leading-relaxed text-muted">
-            {metric === 'bestE1rm'
-              ? `추정 1RM은 ${E1RM_MAX_REPS}회 이하 세트로 계산합니다(Epley 공식).`
-              : metric === 'volume'
-                ? '볼륨은 웜업을 뺀 세트의 중량×횟수 합입니다.'
-                : metric === 'maxReps'
-                  ? '무게 없이 한 세트 중 가장 많은 횟수입니다.'
-                  : '웜업을 뺀 세트 중 가장 무거운 무게입니다.'}{' '}
-            점을 누르거나 좌우로 밀어 보세요.
+            {metricHint(metric, addedWeight)} 점을 누르거나 좌우로 밀어 보세요.
           </p>
           <Link
             to={`/history/${sel.p.workoutId}`}
@@ -304,15 +318,16 @@ function ProgressCard({ points }: { points: SessionPoint[] }) {
         <ChartTable
           caption={`${label} 기록`}
           headers={['날짜', label]}
-          rows={series.map((s) => [formatFullDate(s.t), formatMetric(metric, s.v)])}
+          rows={series.map((s) => [formatFullDate(s.t), format(s.v)])}
         />
       </div>
     </section>
   )
 }
 
-function RecentSessions({ points }: { points: SessionPoint[] }) {
+function RecentSessions({ points, exercise }: { points: SessionPoint[]; exercise: Exercise }) {
   const [all, setAll] = useState(false)
+  const addedWeight = usesAddedWeight(exercise)
   const recent = [...points].reverse()
   // 한두 개만 더 남으면 접지 않고 다 보여 준다.
   const foldable = recent.length > RECENT_COUNT + 2
@@ -333,7 +348,7 @@ function RecentSessions({ points }: { points: SessionPoint[] }) {
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-ink">{formatDayOfYear(p.at)}</p>
                 <p className="mt-0.5 text-sm tabular-nums text-muted [overflow-wrap:anywhere]">
-                  {formatSetsSummary(p.sets) || '본 세트 없음'}
+                  {formatSetsSummary(p.sets, { addedWeight }) || '본 세트 없음'}
                 </p>
               </div>
               <ChevronRightIcon className="size-5 shrink-0 text-muted" />
@@ -548,6 +563,11 @@ function NoteCard({ exercise }: { exercise: Exercise }) {
 
 function GoalCard({ exercise }: { exercise: Exercise }) {
   const defaultIncrement = incrementFor({ bodyPart: exercise.bodyPart })
+  // 시간 종목은 목표 칸(targetReps)을 목표 시간(초)으로 쓰고, 무게를 올리는 추천이 없어 증량 단위를 두지 않는다.
+  const timed = isTimed(exercise)
+  const addedWeight = usesAddedWeight(exercise)
+  const range = targetRange(exercise)
+  const unit = timed ? '초' : '회'
   return (
     <section aria-labelledby="goal-title" className="mt-6">
       <h2 id="goal-title" className="font-bold text-ink">
@@ -556,30 +576,37 @@ function GoalCard({ exercise }: { exercise: Exercise }) {
       <div className="mt-2 rounded-2xl border border-line bg-surface p-4">
         <div className="grid grid-cols-2 gap-3">
           <GoalField
-            label="목표 횟수"
-            unit="회"
+            label={targetLabel(exercise)}
+            unit={unit}
             placeholder="정하지 않음"
             hint="비우면 정하지 않음"
             initial={exercise.targetReps ?? null}
             save={(v) => updateExerciseGoal(exercise.id, { targetReps: v })}
           />
-          <GoalField
-            label="증량 단위"
-            unit="kg"
-            decimal
-            placeholder={formatKg(defaultIncrement)}
-            hint={`비우면 기본 ${formatKg(defaultIncrement)}kg`}
-            initial={exercise.incrementKg ?? null}
-            save={(v) => updateExerciseGoal(exercise.id, { incrementKg: v })}
-          />
+          {!timed && (
+            <GoalField
+              label="증량 단위"
+              unit="kg"
+              decimal
+              placeholder={formatKg(defaultIncrement)}
+              hint={`비우면 기본 ${formatKg(defaultIncrement)}kg`}
+              initial={exercise.incrementKg ?? null}
+              save={(v) => updateExerciseGoal(exercise.id, { incrementKg: v })}
+            />
+          )}
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          다음 무게 추천은 지난번에 모든 본 세트에서 목표 횟수를 채웠으면 증량 단위만큼 무게를 올려 줍니다. 루틴에 목표
-          횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.
+          {timed
+            ? `다음 추천은 지난번에 가장 오래 버틴 시간보다 ${TIME_STEP_SECONDS}초 더를 보여 줍니다. 목표 시간을 못 채운 세트가 있었으면 목표 시간을 다시 추천합니다. 루틴에 목표 시간이 있으면 그것을 먼저 씁니다.`
+            : addedWeight
+              ? '맨몸으로 했으면 지난번 최고 횟수보다 1회 더를 추천합니다. 추가 무게를 달았으면 모든 본 세트에서 목표 횟수를 채웠을 때 증량 단위만큼 추가 무게를 올려 줍니다. 루틴에 목표 횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.'
+              : '다음 무게 추천은 지난번에 모든 본 세트에서 목표 횟수를 채웠으면 증량 단위만큼 무게를 올려 줍니다. 루틴에 목표 횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.'}
         </p>
         <p className="mt-1 text-xs text-muted">
-          바꾸면 바로 저장됩니다. 목표 횟수는 {TARGET_REPS_RANGE.min}~{TARGET_REPS_RANGE.max}회, 증량 단위는{' '}
-          {INCREMENT_RANGE.min}~{INCREMENT_RANGE.max}kg로 정할 수 있습니다.
+          바꾸면 바로 저장됩니다. {targetLabel(exercise)}
+          {timed ? '은' : '는'} {range.min}~{range.max}
+          {unit}
+          {timed ? '로 정할 수 있습니다.' : `, 증량 단위는 ${INCREMENT_RANGE.min}~${INCREMENT_RANGE.max}kg로 정할 수 있습니다.`}
         </p>
       </div>
     </section>
