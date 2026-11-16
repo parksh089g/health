@@ -5,6 +5,7 @@ import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PageHeader } from '../components/PageHeader'
 import { formatDay, formatDuration, formatTime, formatVolume } from '../lib/format'
+import { findNewRecords } from '../lib/history'
 import { useGoBack } from '../lib/useGoBack'
 import { deleteWorkout, loadWorkoutDetail, repeatWorkout, totalVolume, updateWorkoutMemo } from '../lib/workouts'
 
@@ -16,6 +17,7 @@ export default function HistoryDetail() {
   const [askDelete, setAskDelete] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const detail = useLiveQuery(() => loadWorkoutDetail(id), [id])
+  const records = useLiveQuery(() => findNewRecords(id), [id])
 
   if (detail === undefined) return null
   if (detail === null) return <Navigate to="/history" replace />
@@ -47,13 +49,16 @@ export default function HistoryDetail() {
       <main className="flex-1 px-3 pb-10 pt-3">
         <p className="px-1 text-sm tabular-nums text-muted">
           종목 {items.length}개 · {allSets.filter((s) => s.isDone).length}세트 · 볼륨 {formatVolume(totalVolume(allSets))}kg
+          {records && records.length > 0 && (
+            <span className="font-semibold text-accent"> · 새 기록 {records.length}개</span>
+          )}
         </p>
 
         <MemoField key={workout.id} workoutId={workout.id} initial={workout.memo} />
 
         <div className="mt-3 grid gap-3">
           {items.map((item) => (
-            <ExerciseCard key={item.we.id} item={item} mode="history" />
+            <ExerciseCard key={item.we.id} item={item} mode="history" records={records} />
           ))}
         </div>
 
