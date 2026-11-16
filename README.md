@@ -26,7 +26,7 @@
 
 ## 개발
 
-Node.js 22 이상이 필요합니다.
+Node.js 22가 필요합니다. 버전은 `.node-version` 파일에 적어 두었고, CI와 배포 빌드도 이 파일을 따릅니다.
 
 ```bash
 npm install
@@ -74,7 +74,18 @@ src/
 
 서버가 필요 없는 정적 사이트입니다. `npm run build`로 만든 `dist/` 폴더를 HTTPS를 지원하는 정적 호스팅에 올리면 됩니다.
 
-Vercel을 쓰면 이 저장소를 연결하는 것으로 끝납니다. Vite 프로젝트로 자동 인식되어 따로 설정할 것이 없고(빌드 명령 `npm run build`, 출력 폴더 `dist`), `main` 브랜치가 바뀔 때마다 다시 배포됩니다. 휴대폰에서는 배포할 때마다 새로 생기는 미리보기 주소가 아니라 프로젝트의 고정 주소를 열어 주세요.
+### Cloudflare
+
+Cloudflare 대시보드에서 이 저장소를 연결하면 `main` 브랜치가 바뀔 때마다 다시 배포됩니다. Workers와 Pages 어느 쪽으로도 올릴 수 있습니다.
+
+- **Workers**: 저장소의 `wrangler.jsonc`에 빌드 명령과 정적 파일 위치를 적어 두었습니다. 배포 명령은 기본값 `npx wrangler deploy` 그대로 두고, 빌드 명령은 비워 두면 됩니다(배포 전에 `npm run build`가 자동으로 실행됩니다). Worker 이름은 `wrangler.jsonc`의 `name`(`health`)과 맞춥니다. 다른 이름을 쓰려면 이 값을 바꿉니다.
+- **Pages**: 프레임워크 프리셋은 없음으로 두고 빌드 명령 `npm run build`, 빌드 출력 디렉터리 `dist`를 입력합니다. 이 경우 `wrangler.jsonc`는 쓰이지 않습니다.
+
+휴대폰에서는 배포할 때마다 새로 생기는 미리보기 주소가 아니라 `workers.dev`나 `pages.dev`로 끝나는 고정 주소(또는 연결한 내 도메인)를 열어 주세요.
+
+### 다른 호스팅
+
+Vercel, Netlify 같은 다른 정적 호스팅도 빌드 명령 `npm run build`, 출력 폴더 `dist`로 같은 방식으로 쓸 수 있습니다.
 
 상대 경로로 빌드하고 `#/history` 같은 해시 주소를 쓰기 때문에, 도메인 루트가 아닌 하위 경로에 올려도 추가 설정 없이 동작합니다.
 
