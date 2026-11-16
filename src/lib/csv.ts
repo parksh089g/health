@@ -17,6 +17,7 @@ export const CSV_COLUMNS = [
   '웜업',
   '중량(kg)',
   '횟수',
+  'RPE',
   '운동 메모',
 ] as const
 
@@ -74,6 +75,7 @@ export async function exportCsv(): Promise<string> {
             s.isWarmup ? '예' : '',
             s.weightKg,
             s.reps,
+            s.rpe,
             w.memo,
           ]),
         )

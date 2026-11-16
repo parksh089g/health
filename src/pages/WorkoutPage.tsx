@@ -104,11 +104,13 @@ export default function WorkoutPage() {
         )}
 
         <div className="grid gap-3">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <ExerciseCard
               key={item.we.id}
               item={item}
               mode="active"
+              index={index}
+              count={items.length}
               onSetDone={() => rest.start()}
               recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
               records={records}

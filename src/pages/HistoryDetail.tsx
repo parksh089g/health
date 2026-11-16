@@ -58,8 +58,15 @@ export default function HistoryDetail() {
         <MemoField key={workout.id} workoutId={workout.id} initial={workout.memo} />
 
         <div className="mt-3 grid gap-3">
-          {items.map((item) => (
-            <ExerciseCard key={item.we.id} item={item} mode="history" records={records} />
+          {items.map((item, index) => (
+            <ExerciseCard
+              key={item.we.id}
+              item={item}
+              mode="history"
+              index={index}
+              count={items.length}
+              records={records}
+            />
           ))}
         </div>
 
