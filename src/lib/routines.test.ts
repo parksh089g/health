@@ -123,7 +123,7 @@ describe('루틴 만들기와 고치기', () => {
 })
 
 describe('루틴 목록', () => {
-  it('최근에 쓴 것부터, 쓴 적 없는 것은 최근에 고친 것부터', async () => {
+  it('최근에 쓰거나 고친 것부터(새로 만든 루틴이 홈 위쪽에 보이도록)', async () => {
     const a = await createRoutine({ name: 'A', items: [item(SQUAT)] }, 1_000)
     const b = await createRoutine({ name: 'B', items: [item(SQUAT)] }, 2_000)
     const c = await createRoutine({ name: 'C', items: [item(SQUAT)] }, 3_000)
@@ -131,7 +131,9 @@ describe('루틴 목록', () => {
     await db.routines.update(a, { lastUsedAt: 5_000 })
     await db.routines.update(b, { lastUsedAt: 6_000 })
     await updateRoutine(c, { name: 'C', items: [item(BENCH)] }, 7_000)
-    expect((await listRoutines()).map((r) => r.id)).toEqual([b, a, c, d])
+    expect((await listRoutines()).map((r) => r.id)).toEqual([c, b, a, d])
+    const e = await createRoutine({ name: 'E', items: [item(SQUAT)] }, 8_000)
+    expect((await listRoutines())[0].id).toBe(e)
   })
 
   it('종목 이름을 붙이고, 지워진 종목을 표시한다', async () => {
@@ -161,7 +163,8 @@ describe('루틴으로 운동 시작', () => {
     const workout = await db.workouts.get(result.id)
     expect(workout).toMatchObject({ routineId, startedAt: now, date: '2026-11-16', endedAt: null })
     expect(await setsByExercise(result.id)).toEqual([
-      { exerciseId: BENCH, targetReps: 10, sets: Array(2).fill([null, null, false]) },
+      // 처음 하는 종목이라 무게는 비우고 목표 횟수만 채운다.
+      { exerciseId: BENCH, targetReps: 10, sets: Array(2).fill([null, 10, false]) },
       { exerciseId: SQUAT, targetReps: null, sets: Array(4).fill([null, null, false]) },
     ])
     expect((await getRoutine(routineId))?.lastUsedAt).toBe(now)

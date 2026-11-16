@@ -6,6 +6,7 @@ import {
   getRecommendation,
   getWorkoutRecommendations,
   isRecommendationApplied,
+  setsToApply,
   recommendNext,
   type RecommendSession,
 } from './recommend'
@@ -52,6 +53,7 @@ describe('목표를 채웠을 때: 무게를 올린다', () => {
       kind: 'increase',
       weightKg: 62.5,
       reps: 8,
+      fromWeightKg: 60,
       reason: '지난번 3세트 모두 8회를 채웠어요',
       basedOnWorkoutId: 'w1',
     })
@@ -102,6 +104,7 @@ describe('목표를 못 채웠을 때: 같은 무게', () => {
       kind: 'keep',
       weightKg: 60,
       reps: 8,
+      fromWeightKg: 60,
       reason: '8회를 못 채운 세트가 있어서 같은 무게로 다시 해요',
       basedOnWorkoutId: 'w1',
     })
@@ -231,6 +234,7 @@ describe('정체: 같은 무게에서 3번 연속 못 채우면 낮춘다', () =
       kind: 'deload',
       weightKg: 70,
       reps: 8,
+      fromWeightKg: 80,
       reason: '3번 연속 8회를 못 채워서 무게를 조금 낮춰요',
       basedOnWorkoutId: 'w3',
     })
@@ -280,6 +284,7 @@ describe('맨몸 종목', () => {
       kind: 'addReps',
       weightKg: null,
       reps: 13,
+      fromWeightKg: null,
       reason: '지난번 최고 12회보다 1회 더 해 봐요',
       basedOnWorkoutId: 'w1',
     })
@@ -379,6 +384,35 @@ describe('추천 적용', () => {
     ])
   })
 
+  it('피라미드면 지난번 최고 무게 세트만 바꾸고 가벼운 세트는 그대로 둔다', async () => {
+    await record(10_000, BENCH, [[60, 8], [62.5, 6], [70, 4]])
+    const now = await record(
+      20_000,
+      BENCH,
+      [[60, 8, { done: false }], [62.5, 6, { done: false }], [70, 4, { done: false }], [null, null, { done: false }]],
+      false,
+    )
+    const rec = await getRecommendation((await db.workoutExercises.get(now.weId))!)
+    expect(rec).toMatchObject({ kind: 'increase', weightKg: 72.5, reps: 4, fromWeightKg: 70 })
+
+    expect(await applyRecommendation(now.weId, rec!)).toBe(2)
+    const after = await db.sets.where('workoutExerciseId').equals(now.weId).sortBy('order')
+    expect(after.map((s) => [s.weightKg, s.reps])).toEqual([
+      [60, 8],
+      [62.5, 6],
+      [72.5, 4],
+      [72.5, 4],
+    ])
+    expect(isRecommendationApplied(after, rec!)).toBe(true)
+  })
+
+  it('지난번 최고 무게 세트가 없으면(직접 바꾼 경우) 남은 본 세트 모두 바꾼다', () => {
+    const s = (weightKg: number | null, isDone = false) => ({ weightKg, isWarmup: false, isDone })
+    const rec = { weightKg: 62.5, reps: 8, fromWeightKg: 60 }
+    expect(setsToApply([s(55), s(57.5), s(60, true)], rec)).toHaveLength(2)
+    expect(setsToApply([s(55), s(60), s(null)], rec).map((x) => x.weightKg)).toEqual([60, null])
+  })
+
   it('맨몸 추천은 횟수만 바꾼다', async () => {
     const now = await record(10_000, DIPS, [[null, 10, { done: false }], [5, 10, { done: false }]], false)
     expect(await applyRecommendation(now.weId, { weightKg: null, reps: 13 })).toBe(2)
@@ -404,5 +438,15 @@ describe('추천 적용', () => {
     expect(isRecommendationApplied([s(62.5, 8, false, true)], rec)).toBe(false)
     // 맨몸 추천은 횟수만 본다.
     expect(isRecommendationApplied([s(null, 13), s(0, 13)], { weightKg: null, reps: 13 })).toBe(true)
+
+    // 지난번 최고 무게를 알면, 그 무게 세트가 모두 바뀌었는지와 빈 세트가 없는지를 본다.
+    const up = { weightKg: 75, reps: 4, fromWeightKg: 70 }
+    expect(isRecommendationApplied([s(60, 8), s(62.5, 6), s(75, 4)], up)).toBe(true)
+    expect(isRecommendationApplied([s(60, 8), s(70, 4), s(75, 4)], up)).toBe(false)
+    expect(isRecommendationApplied([s(60, 8), s(75, 4), s(null, null)], up)).toBe(false)
+    expect(isRecommendationApplied([s(60, 8), s(75, 3)], up)).toBe(false)
+    const keep = { weightKg: 70, reps: 5, fromWeightKg: 70 }
+    expect(isRecommendationApplied([s(60, 8), s(70, 5), s(70, 5)], keep)).toBe(true)
+    expect(isRecommendationApplied([s(60, 8), s(70, 5), s(70, 4)], keep)).toBe(false)
   })
 })

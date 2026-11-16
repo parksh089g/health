@@ -23,6 +23,11 @@ export interface Recommendation {
   weightKg: number | null
   /** 추천 횟수 */
   reps: number
+  /**
+   * 판단에 쓴 지난번 최고 무게(kg). 맨몸 종목이면 null.
+   * 적용할 때 이 무게로 채워진 세트만 바꿔서, 피라미드처럼 무게를 바꿔 가며 하는 가벼운 세트는 그대로 둔다.
+   */
+  fromWeightKg: number | null
   /** 화면에 보여 주는 짧은 이유 */
   reason: string
   /** 판단에 쓴 지난 운동의 id */
@@ -105,6 +110,7 @@ export function recommendNext(
       kind: 'addReps',
       weightKg: null,
       reps: best + 1,
+      fromWeightKg: null,
       reason: `지난번 최고 ${best}회보다 1회 더 해 봐요`,
       basedOnWorkoutId,
     }
@@ -121,6 +127,7 @@ export function recommendNext(
       kind: 'increase',
       weightKg: roundKg(weight + incrementFor(exercise)),
       reps: target,
+      fromWeightKg: weight,
       reason:
         count > 1 ? `지난번 ${count}세트 모두 ${target}회를 채웠어요` : `지난번 ${formatKg(weight)}kg로 ${target}회를 채웠어요`,
       basedOnWorkoutId,
@@ -142,6 +149,7 @@ export function recommendNext(
         kind: 'deload',
         weightKg: lower,
         reps: target,
+        fromWeightKg: weight,
         reason: `${STALL_SESSIONS}번 연속 ${target}회를 못 채워서 무게를 조금 낮춰요`,
         basedOnWorkoutId,
       }
@@ -152,6 +160,7 @@ export function recommendNext(
     kind: 'keep',
     weightKg: weight,
     reps: target,
+    fromWeightKg: weight,
     reason: `${target}회를 못 채운 세트가 있어서 같은 무게로 다시 해요`,
     basedOnWorkoutId,
   }
@@ -188,31 +197,52 @@ function pendingWorkingSets<T extends Pick<SetEntry, 'isWarmup' | 'isDone'>>(set
   return sets.filter((s) => !s.isDone && !s.isWarmup)
 }
 
-/** 아직 완료하지 않은 본 세트가 모두 추천 값과 같은지. 그런 세트가 없으면 false. */
+type ApplyRec = Pick<Recommendation, 'weightKg' | 'reps'> & { fromWeightKg?: number | null }
+
+const sameKg = (a: number | null, b: number | null) => a !== null && b !== null && Math.abs(a - b) < EPSILON
+
+/**
+ * 추천을 채울 세트. 아직 하지 않은 본 세트 중 지난번 최고 무게로 채워진 세트와 무게가 빈 세트만 고른다.
+ * 피라미드(60, 62.5, 70)처럼 무게를 바꿔 가며 하면 가벼운 세트는 그대로 둔다.
+ * 그런 세트가 없거나(값을 직접 바꾼 경우) 맨몸 추천이면 아직 하지 않은 본 세트 모두.
+ */
+export function setsToApply<T extends Pick<SetEntry, 'weightKg' | 'isWarmup' | 'isDone'>>(sets: T[], rec: ApplyRec): T[] {
+  const pending = pendingWorkingSets(sets)
+  const from = rec.fromWeightKg
+  if (rec.weightKg === null || from === undefined || from === null) return pending
+  const picked = pending.filter((s) => s.weightKg === null || sameKg(s.weightKg, from))
+  return picked.length > 0 ? picked : pending
+}
+
+/** 추천을 이미 적용했는지. 아직 하지 않은 본 세트가 없으면 false. */
 export function isRecommendationApplied(
   sets: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>[],
-  rec: Pick<Recommendation, 'weightKg' | 'reps'>,
+  rec: ApplyRec,
 ): boolean {
   const pending = pendingWorkingSets(sets)
-  return (
-    pending.length > 0 &&
-    pending.every(
-      (s) => s.reps === rec.reps && (rec.weightKg === null || Math.abs((s.weightKg ?? 0) - rec.weightKg) < EPSILON),
-    )
-  )
+  if (pending.length === 0) return false
+  if (rec.weightKg === null) return pending.every((s) => s.reps === rec.reps)
+  const from = rec.fromWeightKg
+  // 바꿀 무게를 모르는 추천이면 남은 본 세트가 모두 추천 값이어야 한다.
+  if (from === undefined || from === null) {
+    return pending.every((s) => s.reps === rec.reps && sameKg(s.weightKg, rec.weightKg))
+  }
+  const atRec = pending.filter((s) => sameKg(s.weightKg, rec.weightKg))
+  if (atRec.length === 0 || atRec.some((s) => s.reps !== rec.reps)) return false
+  // 무게가 빈 세트나, 아직 바꾸지 않은 지난번 최고 무게 세트가 남아 있으면 적용 전이다.
+  if (pending.some((s) => s.weightKg === null)) return false
+  if (!sameKg(from, rec.weightKg) && pending.some((s) => sameKg(s.weightKg, from))) return false
+  return true
 }
 
 /**
- * 추천 무게와 횟수를 아직 완료하지 않은 본 세트에 채운다. 완료한 세트와 웜업은 그대로 둔다.
+ * 추천 무게와 횟수를 채운다(어느 세트인지는 setsToApply). 완료한 세트와 웜업은 그대로 둔다.
  * 맨몸 종목 추천(무게 null)이면 횟수만 바꾼다. 바꾼 세트 수를 돌려준다.
  */
-export async function applyRecommendation(
-  workoutExerciseId: string,
-  rec: Pick<Recommendation, 'weightKg' | 'reps'>,
-): Promise<number> {
+export async function applyRecommendation(workoutExerciseId: string, rec: ApplyRec): Promise<number> {
   return db.transaction('rw', db.sets, async () => {
     const sets = await db.sets.where('workoutExerciseId').equals(workoutExerciseId).toArray()
-    const targets = pendingWorkingSets(sets)
+    const targets = setsToApply(sets, rec)
     const changes: Partial<Pick<SetEntry, 'weightKg' | 'reps'>> =
       rec.weightKg === null ? { reps: rec.reps } : { weightKg: rec.weightKg, reps: rec.reps }
     await db.sets.bulkUpdate(targets.map((s) => ({ key: s.id, changes })))

@@ -77,14 +77,13 @@ export async function getRoutine(id: string): Promise<Routine | undefined> {
   return db.routines.get(id)
 }
 
-/** 최근에 쓴 루틴부터, 쓴 적이 없으면 최근에 고친 루틴부터 늘어놓는다. */
+/** 최근에 쓰거나 만들거나 고친 루틴부터 늘어놓는다. 새로 만든 루틴이 홈 위쪽에 보이도록. */
 export function sortRoutines(routines: Routine[]): Routine[] {
-  return [...routines].sort(
-    (a, b) => (b.lastUsedAt ?? -Infinity) - (a.lastUsedAt ?? -Infinity) || b.updatedAt - a.updatedAt,
-  )
+  const touched = (r: Routine) => Math.max(r.lastUsedAt ?? 0, r.updatedAt)
+  return [...routines].sort((a, b) => touched(b) - touched(a))
 }
 
-/** 루틴 목록. 최근에 쓴 것부터. */
+/** 루틴 목록. 최근에 쓰거나 만들거나 고친 것부터. */
 export async function listRoutines(): Promise<Routine[]> {
   return sortRoutines(await db.routines.toArray())
 }

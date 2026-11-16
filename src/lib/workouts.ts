@@ -92,15 +92,17 @@ type SetTemplate = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup'>
 const EMPTY_SET: SetTemplate = { weightKg: null, reps: null, isWarmup: false }
 
 /** 지난 세트로 새 세트의 틀을 만든다. */
-export function prefillTemplate(last: SetEntry[], setCount?: number): SetTemplate[] {
+export function prefillTemplate(last: SetEntry[], setCount?: number, targetReps?: number | null): SetTemplate[] {
   const toTemplate = (s: SetEntry): SetTemplate => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: s.isWarmup })
+  // 지난 기록이 없을 때 빈 세트. 루틴에 목표 횟수가 있으면 횟수만 미리 채운다.
+  const empty: SetTemplate = { ...EMPTY_SET, reps: targetReps ?? null }
   if (setCount === undefined) {
-    return last.length > 0 ? last.map(toTemplate) : Array.from({ length: DEFAULT_SET_COUNT }, () => ({ ...EMPTY_SET }))
+    return last.length > 0 ? last.map(toTemplate) : Array.from({ length: DEFAULT_SET_COUNT }, () => ({ ...empty }))
   }
   const warmups = last.filter((s) => s.isWarmup).map(toTemplate)
   const working = last.filter((s) => !s.isWarmup).map(toTemplate)
   const count = Math.max(1, Math.round(setCount))
-  const main = Array.from({ length: count }, (_, i) => ({ ...(working[i] ?? working.at(-1) ?? EMPTY_SET) }))
+  const main = Array.from({ length: count }, (_, i) => ({ ...(working[i] ?? working.at(-1) ?? empty) }))
   return [...warmups, ...main]
 }
 
@@ -120,7 +122,7 @@ export async function addExerciseWithPrefill(
   await db.workoutExercises.add(we)
 
   const last = await getLastSets(exerciseId, workoutId)
-  const template = prefillTemplate(last, opts.setCount)
+  const template = prefillTemplate(last, opts.setCount, opts.targetReps)
   await db.sets.bulkAdd(
     template.map((t, i) => ({ id: newId(), workoutExerciseId: weId, order: i, ...t, isDone: false })),
   )

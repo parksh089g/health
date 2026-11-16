@@ -189,6 +189,12 @@ describe('지난 세트로 틀 만들기', () => {
       { weightKg: null, reps: null, isWarmup: false },
       { weightKg: null, reps: null, isWarmup: false },
     ])
+    // 처음 하는 종목이면 루틴의 목표 횟수만 채운다. 기록이 있으면 기록을 따른다.
+    expect(prefillTemplate([], 2, 8).map((t) => [t.weightKg, t.reps])).toEqual([
+      [null, 8],
+      [null, 8],
+    ])
+    expect(prefillTemplate(last, 1, 8).map((t) => t.reps)).toEqual([10, 8])
   })
 
   it('목표 횟수를 종목 기록에 남기고, 같은 운동 다시 하기에도 따라간다', async () => {
