@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
 import { AiSettings } from '../components/AiSettings'
+import { NumberField } from '../components/NumberField'
 import { Dialog } from '../components/Dialog'
 import { Toggle } from '../components/Toggle'
 import { db } from '../db'
@@ -11,7 +12,9 @@ import { formatFullDate } from '../lib/format'
 import { BACKUP_FAILED_TEXT, BACKUP_MIME, backupSavedText, downloadFile, saveBackupFile } from '../lib/saveFile'
 import {
   REST_OPTIONS,
+  REST_RANGE,
   SETTING_KEYS,
+  isRestSeconds,
   getLastBackupAt,
   getRecommendEnabled,
   getRestSeconds,
@@ -144,6 +147,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
+        {restSeconds !== undefined && <RestDirectInput seconds={restSeconds} />}
       </section>
 
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="다음 무게 추천">
@@ -294,6 +298,32 @@ export default function Settings() {
           </>
         )}
       </Dialog>
+    </div>
+  )
+}
+
+/** 휴식 시간 기본값을 초로 직접 적는 칸. 범위 안의 값이면 바로 저장한다. */
+function RestDirectInput({ seconds }: { seconds: number }) {
+  const [value, setValue] = useState<number | null>(seconds)
+  // 위의 버튼이나 타이머에서 기본값이 바뀌면 칸의 값도 따라간다(적는 중에 저장된 값이면 그대로 둔다).
+  const [seen, setSeen] = useState(seconds)
+  if (seen !== seconds) {
+    setSeen(seconds)
+    if (value !== seconds) setValue(seconds)
+  }
+  const invalid = value !== null && !isRestSeconds(value)
+
+  const change = (v: number | null) => {
+    setValue(v)
+    if (isRestSeconds(v) && v !== seconds) void setSetting(SETTING_KEYS.restSeconds, v)
+  }
+
+  return (
+    <div className="mt-3 grid grid-cols-2 items-center gap-3">
+      <NumberField value={value} onChange={change} unit="초" ariaLabel="휴식 시간 기본값 직접 입력" placeholder={String(seconds)} />
+      <p role={invalid ? 'alert' : undefined} className={`text-sm ${invalid ? 'text-danger' : 'text-muted'}`}>
+        {invalid ? `${REST_RANGE.min}~${REST_RANGE.max}초로 정해 주세요.` : '직접 입력'}
+      </p>
     </div>
   )
 }
