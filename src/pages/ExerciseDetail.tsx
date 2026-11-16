@@ -378,8 +378,8 @@ function GoalCard({ exercise }: { exercise: Exercise }) {
           />
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          다음 무게 추천은 지난번에 모든 본 세트에서 목표 횟수를 채웠으면 증량 단위만큼 무게를 올려 줍니다. 목표 횟수를
-          비워 두면 루틴의 목표 횟수나 지난 기록을 기준으로 합니다.
+          다음 무게 추천은 지난번에 모든 본 세트에서 목표 횟수를 채웠으면 증량 단위만큼 무게를 올려 줍니다. 루틴에 목표
+          횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.
         </p>
         <p className="mt-1 text-xs text-muted">
           바꾸면 바로 저장됩니다. 목표 횟수는 {TARGET_REPS_RANGE.min}~{TARGET_REPS_RANGE.max}회, 증량 단위는{' '}

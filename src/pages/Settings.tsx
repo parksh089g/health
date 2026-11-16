@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Dialog } from '../components/Dialog'
 import { db } from '../db'
 import { backupFileName, exportBackup, importBackup, parseBackup, type BackupFile } from '../lib/backup'
+import { csvFileName, exportCsv } from '../lib/csv'
 import { ensureSeedExercises } from '../lib/exercises'
 import { formatFullDate } from '../lib/format'
 import {
@@ -15,9 +16,10 @@ import {
 } from '../lib/settings'
 
 const BACKUP_MIME = 'application/json'
+const CSV_MIME = 'text/csv;charset=utf-8'
 
-function downloadFile(text: string, name: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: BACKUP_MIME }))
+function downloadFile(text: string, name: string, type: string = BACKUP_MIME): void {
+  const url = URL.createObjectURL(new Blob([text], { type }))
   const a = document.createElement('a')
   a.href = url
   a.download = name
@@ -62,6 +64,7 @@ export default function Settings() {
 
   const fileInput = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [csvNotice, setCsvNotice] = useState<Notice | null>(null)
   const [pending, setPending] = useState<BackupFile | null>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const [shareable] = useState(canShareFiles)
@@ -97,6 +100,17 @@ export default function Settings() {
       // 공유 창을 그냥 닫은 경우는 오류가 아니다.
       if (e instanceof DOMException && e.name === 'AbortError') return
       setNotice({ tone: 'error', text: '백업 파일을 만들지 못했습니다. 다시 시도해 주세요.' })
+    }
+  }
+
+  const saveCsv = async () => {
+    setCsvNotice(null)
+    try {
+      const name = csvFileName()
+      downloadFile(await exportCsv(), name, CSV_MIME)
+      setCsvNotice({ tone: 'ok', text: `${name} 파일을 받았습니다.` })
+    } catch {
+      setCsvNotice({ tone: 'error', text: 'CSV 파일을 만들지 못했습니다. 다시 시도해 주세요.' })
     }
   }
 
@@ -229,6 +243,29 @@ export default function Settings() {
             className={`mt-3 text-sm leading-relaxed ${notice.tone === 'error' ? 'text-danger' : 'text-good'}`}
           >
             {notice.text}
+          </p>
+        )}
+      </section>
+
+      <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="표로 내보내기">
+        <h2 className="font-bold text-ink">표로 내보내기</h2>
+        <p className="mt-1 text-sm leading-relaxed text-muted">
+          끝난 운동의 세트를 한 줄씩 담은 CSV 파일입니다. 엑셀이나 구글 시트에서 열어 볼 수 있습니다. 복원에는 쓸 수
+          없으니 옮길 때는 위의 백업 파일을 쓰세요.
+        </p>
+        <button
+          type="button"
+          onClick={() => void saveCsv()}
+          className="mt-3 h-12 w-full rounded-xl bg-surface-2 font-semibold text-ink active:opacity-70"
+        >
+          기록 CSV 내보내기
+        </button>
+        {csvNotice && (
+          <p
+            role={csvNotice.tone === 'error' ? 'alert' : 'status'}
+            className={`mt-3 text-sm leading-relaxed ${csvNotice.tone === 'error' ? 'text-danger' : 'text-good'}`}
+          >
+            {csvNotice.text}
           </p>
         )}
       </section>
