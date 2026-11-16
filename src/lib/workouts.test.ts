@@ -1,0 +1,302 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { db } from '../db'
+import {
+  DEFAULT_SET_COUNT,
+  addExercisesToWorkout,
+  addSet,
+  completeSet,
+  countThisWeek,
+  daysWorkedThisWeek,
+  deleteWorkout,
+  finishWorkout,
+  getActiveWorkout,
+  getLastSets,
+  loadWorkoutDetail,
+  loadWorkoutSummaries,
+  markEnteredSetsDone,
+  removeLastSet,
+  removeWorkoutExercise,
+  repeatWorkout,
+  setVolume,
+  startWorkout,
+  totalVolume,
+  updateSet,
+} from './workouts'
+
+const SQUAT = 'ex-squat'
+const BENCH = 'ex-bench'
+
+beforeEach(async () => {
+  await db.delete()
+  await db.open()
+  await db.exercises.bulkAdd([
+    { id: SQUAT, name: '스쿼트', bodyPart: 'legs', equipment: 'barbell', isCustom: false, createdAt: 0 },
+    { id: BENCH, name: '벤치프레스', bodyPart: 'chest', equipment: 'barbell', isCustom: false, createdAt: 0 },
+  ])
+})
+
+/** 운동 안에서 그 종목의 세트를 순서대로 가져온다. */
+async function setsOf(workoutId: string, exerciseId: string) {
+  const detail = await loadWorkoutDetail(workoutId)
+  const item = detail?.items.find((i) => i.we.exerciseId === exerciseId)
+  if (!item) throw new Error('운동에 그 종목이 없습니다.')
+  return item.sets
+}
+
+/** 주어진 세트를 완료한 운동 하나를 끝까지 기록한다. */
+async function recordWorkout(startedAt: number, exerciseId: string, done: [weightKg: number, reps: number][]) {
+  const id = await startWorkout(startedAt)
+  await addExercisesToWorkout(id, [exerciseId])
+  const sets = await setsOf(id, exerciseId)
+  const weId = sets[0].workoutExerciseId
+  for (let i = sets.length; i < done.length; i++) await addSet(weId)
+  const all = await setsOf(id, exerciseId)
+  for (const [i, [weightKg, reps]] of done.entries()) {
+    await updateSet(all[i].id, { weightKg, reps, isDone: true })
+  }
+  expect(await finishWorkout(id, { endedAt: startedAt + 3_600_000 })).toBe(true)
+  return id
+}
+
+describe('운동 시작', () => {
+  it('진행 중인 운동이 있으면 새로 만들지 않고 그 운동을 돌려준다', async () => {
+    const first = await startWorkout()
+    const second = await startWorkout()
+    expect(second).toBe(first)
+    expect(await db.workouts.count()).toBe(1)
+    expect((await getActiveWorkout())?.id).toBe(first)
+  })
+
+  it('운동을 마치면 진행 중인 운동이 없어진다', async () => {
+    await recordWorkout(Date.now(), SQUAT, [[60, 8]])
+    expect(await getActiveWorkout()).toBeUndefined()
+  })
+})
+
+describe('종목 추가와 지난 세트 자동 채우기', () => {
+  it('처음 하는 종목은 빈 세트로 시작한다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    expect(sets).toHaveLength(DEFAULT_SET_COUNT)
+    for (const s of sets) expect(s).toMatchObject({ weightKg: null, reps: null, isDone: false, isWarmup: false })
+  })
+
+  it('지난번에 완료한 세트의 무게와 횟수를 미리 채운다', async () => {
+    await recordWorkout(1_000, SQUAT, [
+      [60, 8],
+      [62.5, 6],
+    ])
+    const id = await startWorkout(10_000_000)
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    expect(sets.map((s) => [s.weightKg, s.reps, s.isDone])).toEqual([
+      [60, 8, false],
+      [62.5, 6, false],
+    ])
+  })
+
+  it('가장 최근에 한 운동의 값을 쓴다', async () => {
+    await recordWorkout(1_000, SQUAT, [[60, 8]])
+    await recordWorkout(20_000_000, SQUAT, [[70, 5]])
+    await recordWorkout(10_000_000, SQUAT, [[65, 6]])
+    const last = await getLastSets(SQUAT)
+    expect(last.map((s) => [s.weightKg, s.reps])).toEqual([[70, 5]])
+  })
+
+  it('진행 중인 운동은 지난 기록으로 보지 않는다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const [first] = await setsOf(id, SQUAT)
+    await updateSet(first.id, { weightKg: 100, reps: 1, isDone: true })
+    expect(await getLastSets(SQUAT)).toEqual([])
+  })
+
+  it('이미 들어 있는 종목은 다시 넣지 않고, 새 종목은 뒤에 붙인다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    await addExercisesToWorkout(id, [SQUAT, BENCH, BENCH])
+    const detail = await loadWorkoutDetail(id)
+    expect(detail?.items.map((i) => i.we.exerciseId)).toEqual([SQUAT, BENCH])
+  })
+
+  it('운동 화면용 조회는 요청하면 지난 세트도 함께 준다', async () => {
+    await recordWorkout(1_000, SQUAT, [[60, 8]])
+    const id = await startWorkout(10_000_000)
+    await addExercisesToWorkout(id, [SQUAT])
+    const detail = await loadWorkoutDetail(id, { withLastSets: true })
+    expect(detail?.items[0].lastSets.map((s) => [s.weightKg, s.reps])).toEqual([[60, 8]])
+    expect(detail?.items[0].exercise?.name).toBe('스쿼트')
+  })
+})
+
+describe('세트 고치기', () => {
+  it('세트를 추가하면 바로 앞 세트의 값을 따라간다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    await updateSet(sets[2].id, { weightKg: 80, reps: 5 })
+    await addSet(sets[0].workoutExerciseId)
+    const after = await setsOf(id, SQUAT)
+    expect(after).toHaveLength(DEFAULT_SET_COUNT + 1)
+    expect(after.at(-1)).toMatchObject({ weightKg: 80, reps: 5, isDone: false })
+  })
+
+  it('세트 삭제는 마지막 세트를 지운다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    await removeLastSet(sets[0].workoutExerciseId)
+    const after = await setsOf(id, SQUAT)
+    expect(after.map((s) => s.id)).toEqual(sets.slice(0, -1).map((s) => s.id))
+  })
+
+  it('종목을 빼면 그 세트도 함께 지워진다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT, BENCH])
+    const sets = await setsOf(id, SQUAT)
+    await removeWorkoutExercise(sets[0].workoutExerciseId)
+    const detail = await loadWorkoutDetail(id)
+    expect(detail?.items.map((i) => i.we.exerciseId)).toEqual([BENCH])
+    expect(await db.sets.count()).toBe(DEFAULT_SET_COUNT)
+  })
+
+  it('횟수가 있는 세트만 완료로 표시한다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    await updateSet(sets[0].id, { weightKg: 60, reps: 8 })
+    await updateSet(sets[1].id, { weightKg: 60 })
+
+    expect(await completeSet(sets[0].id)).toBe(true)
+    expect(await completeSet(sets[1].id)).toBe(false)
+    expect(await completeSet('없는 세트')).toBe(false)
+    expect((await setsOf(id, SQUAT)).map((s) => s.isDone)).toEqual([true, false, false])
+  })
+
+  it('횟수를 적자마자 완료를 눌러도 방금 적은 값으로 판단한다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const [first] = await setsOf(id, SQUAT)
+
+    // 화면에서는 횟수 저장이 끝나기를 기다리지 않고 바로 완료를 누를 수 있다.
+    const saving = updateSet(first.id, { reps: 8 })
+    const completing = completeSet(first.id)
+
+    expect(await completing).toBe(true)
+    await saving
+    expect((await setsOf(id, SQUAT))[0]).toMatchObject({ reps: 8, isDone: true })
+  })
+
+  it('횟수를 적은 세트만 한꺼번에 완료로 바꾼다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    const sets = await setsOf(id, SQUAT)
+    await updateSet(sets[0].id, { weightKg: 60, reps: 8 })
+    await updateSet(sets[1].id, { weightKg: 60 })
+    expect(await markEnteredSetsDone(id)).toBe(1)
+    expect((await setsOf(id, SQUAT)).map((s) => s.isDone)).toEqual([true, false, false])
+  })
+})
+
+describe('운동 마치기', () => {
+  it('완료하지 않은 세트와 완료 세트가 없는 종목은 기록에서 뺀다', async () => {
+    const id = await startWorkout(1_000)
+    await addExercisesToWorkout(id, [SQUAT, BENCH])
+    const sets = await setsOf(id, SQUAT)
+    await updateSet(sets[0].id, { weightKg: 60, reps: 8, isDone: true })
+    await updateSet(sets[1].id, { weightKg: 60, reps: 8 })
+
+    expect(await finishWorkout(id, { memo: '  가볍게  ', endedAt: 5_000 })).toBe(true)
+
+    const detail = await loadWorkoutDetail(id)
+    expect(detail?.workout).toMatchObject({ endedAt: 5_000, memo: '가볍게' })
+    expect(detail?.items.map((i) => i.we.exerciseId)).toEqual([SQUAT])
+    expect(detail?.items[0].sets.map((s) => [s.weightKg, s.reps, s.isDone])).toEqual([[60, 8, true]])
+  })
+
+  it('완료한 세트가 하나도 없으면 아무것도 바꾸지 않는다', async () => {
+    const id = await startWorkout()
+    await addExercisesToWorkout(id, [SQUAT])
+    expect(await finishWorkout(id)).toBe(false)
+    expect((await getActiveWorkout())?.id).toBe(id)
+    expect(await setsOf(id, SQUAT)).toHaveLength(DEFAULT_SET_COUNT)
+  })
+
+  it('운동을 지우면 종목과 세트도 함께 지워진다', async () => {
+    const keep = await recordWorkout(1_000, BENCH, [[40, 10]])
+    const id = await startWorkout(10_000_000)
+    await addExercisesToWorkout(id, [SQUAT])
+    await deleteWorkout(id)
+    expect(await db.workouts.toCollection().primaryKeys()).toEqual([keep])
+    expect(await db.workoutExercises.count()).toBe(1)
+    expect(await db.sets.count()).toBe(1)
+  })
+})
+
+describe('같은 운동 다시 하기', () => {
+  it('같은 종목을 같은 순서로 넣고 최근 값으로 채운다', async () => {
+    const source = await startWorkout(1_000)
+    await addExercisesToWorkout(source, [BENCH, SQUAT])
+    for (const exerciseId of [BENCH, SQUAT]) {
+      const [first] = await setsOf(source, exerciseId)
+      await updateSet(first.id, { weightKg: 50, reps: 10, isDone: true })
+    }
+    await finishWorkout(source, { endedAt: 2_000 })
+    await recordWorkout(10_000_000, SQUAT, [[55, 9]])
+
+    const result = await repeatWorkout(source, 20_000_000)
+    expect(result.created).toBe(true)
+    const detail = await loadWorkoutDetail(result.id)
+    expect(detail?.workout.endedAt).toBeNull()
+    expect(detail?.items.map((i) => i.we.exerciseId)).toEqual([BENCH, SQUAT])
+    expect(detail?.items[0].sets.map((s) => [s.weightKg, s.reps, s.isDone])).toEqual([[50, 10, false]])
+    expect(detail?.items[1].sets.map((s) => [s.weightKg, s.reps, s.isDone])).toEqual([[55, 9, false]])
+  })
+
+  it('진행 중인 운동이 있으면 새로 만들지 않는다', async () => {
+    const source = await recordWorkout(1_000, SQUAT, [[60, 8]])
+    const active = await startWorkout(10_000_000)
+    expect(await repeatWorkout(source)).toEqual({ id: active, created: false })
+    expect(await db.workouts.count()).toBe(2)
+  })
+})
+
+describe('요약 값', () => {
+  it('볼륨은 완료한 본 세트만 센다', () => {
+    const base = { weightKg: 60, reps: 8, isWarmup: false, isDone: true }
+    expect(setVolume(base)).toBe(480)
+    expect(setVolume({ ...base, isWarmup: true })).toBe(0)
+    expect(setVolume({ ...base, isDone: false })).toBe(0)
+    expect(setVolume({ ...base, weightKg: null })).toBe(0)
+    expect(totalVolume([base, { ...base, weightKg: 62.5, reps: 4 }])).toBe(730)
+  })
+
+  it('기록 목록은 끝난 운동만 최근 것부터 보여 준다', async () => {
+    const older = await recordWorkout(1_000, SQUAT, [
+      [60, 8],
+      [60, 8],
+    ])
+    const newer = await recordWorkout(10_000_000, BENCH, [[40, 10]])
+    await startWorkout(20_000_000)
+
+    const summaries = await loadWorkoutSummaries()
+    expect(summaries.map((s) => s.workout.id)).toEqual([newer, older])
+    expect(summaries[1]).toMatchObject({ exerciseNames: ['스쿼트'], setCount: 2, volume: 960 })
+  })
+
+  it('이번 주 운동은 월요일부터 일요일까지로 센다', () => {
+    const at = (month: number, day: number, hour = 10) => new Date(2026, month - 1, day, hour).getTime()
+    const done = (startedAt: number) => ({ startedAt, endedAt: startedAt + 1 })
+    const now = at(11, 18) // 수요일
+    const workouts = [
+      done(at(11, 15, 23)), // 지난주 일요일
+      done(at(11, 16, 0)), // 월요일
+      done(at(11, 17)), // 화요일
+      done(at(11, 17, 20)), // 화요일에 한 번 더
+      { startedAt: at(11, 18), endedAt: null }, // 진행 중
+    ]
+    expect(countThisWeek(workouts, now)).toBe(3)
+    expect(daysWorkedThisWeek(workouts, now)).toEqual([true, true, false, false, false, false, false])
+  })
+})
