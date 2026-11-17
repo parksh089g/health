@@ -15,6 +15,7 @@ import { SegmentedControl } from '../components/SegmentedControl'
 import { bodyPartLabel } from '../lib/exercises'
 import { formatTime, formatVolume } from '../lib/format'
 import { recordLabel } from '../lib/history'
+import { formatCardioTime } from '../lib/measure'
 import {
   addMonths,
   bodyPartSets,
@@ -23,10 +24,12 @@ import {
   formatMetric,
   formatMonthDay,
   formatWeekRange,
+  hasCardioSessions,
   lastDays,
   loadStatsData,
   monthOf,
   sameMonth,
+  weeklyCardio,
   weeklyTotals,
   workoutDaysInMonth,
   type StatsData,
@@ -38,7 +41,7 @@ import { useNow } from '../lib/useNow'
 const WEEKS = 12
 const BODY_PART_DAYS = 28
 
-/** 통계 탭. 이번 달과 이번 주 요약, 체중, 주별 운동 횟수와 볼륨, 부위별 세트, 운동 달력, 종목 목록. */
+/** 통계 탭. 이번 달과 이번 주 요약, 체중, 주별 운동 횟수와 볼륨, 유산소 시간, 부위별 세트, 운동 달력, 종목 목록. */
 export default function Stats() {
   const now = useNow(60_000)
   const data = useLiveQuery(loadStatsData, [])
@@ -67,7 +70,7 @@ export default function Stats() {
 }
 
 function StatsBody({ data, now }: { data: StatsData; now: number }) {
-  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: WEEKS, now })
+  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: WEEKS, now, exercises: data.exercises })
   const thisMonth = monthOf(now)
 
   return (
@@ -76,6 +79,7 @@ function StatsBody({ data, now }: { data: StatsData; now: number }) {
       <AiReviewCard />
       <BodyWeightCard now={now} />
       <WeeklyCard weeks={weeks} />
+      <CardioCard data={data} now={now} />
       <BodyPartCard data={data} now={now} />
       <CalendarCard data={data} now={now} />
       <ExerciseList data={data} />
@@ -128,6 +132,13 @@ function Overview({ data, weeks, thisMonth }: { data: StatsData; weeks: WeekTota
   )
 }
 
+/** 그 주를 부르는 이름. 이번 주와 지난주는 앞에 그렇게 붙인다. */
+function weekName(weeks: { start: number }[], i: number): string {
+  const last = weeks.length - 1
+  const range = formatWeekRange(weeks[i].start)
+  return i === last ? `이번 주 · ${range}` : i === last - 1 ? `지난주 · ${range}` : range
+}
+
 type WeeklyMetric = 'workouts' | 'volume'
 
 function WeeklyCard({ weeks }: { weeks: WeekTotal[] }) {
@@ -139,12 +150,6 @@ function WeeklyCard({ weeks }: { weeks: WeekTotal[] }) {
 
   const values = weeks.map((w) => (metric === 'workouts' ? w.workouts : w.volume))
   const format = (v: number) => (metric === 'workouts' ? `${v}회` : `${formatVolume(v)}kg`)
-  const weekName = (i: number) =>
-    i === last
-      ? `이번 주 · ${formatWeekRange(weeks[i].start)}`
-      : i === last - 1
-        ? `지난주 · ${formatWeekRange(weeks[i].start)}`
-        : formatWeekRange(weeks[i].start)
   const average = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length)
   const metricName = metric === 'workouts' ? '운동 횟수' : '볼륨'
 
@@ -171,7 +176,7 @@ function WeeklyCard({ weeks }: { weeks: WeekTotal[] }) {
       <div className="mt-3">
         <ChartReadout
           value={format(values[selected])}
-          label={weekName(selected)}
+          label={weekName(weeks, selected)}
           aside={
             <>
               {WEEKS}주 평균
@@ -199,7 +204,7 @@ function WeeklyCard({ weeks }: { weeks: WeekTotal[] }) {
             selected={selected}
             onSelect={(i) => setPicked(weeks[i].start)}
             name={`주별 ${metricName} 그래프`}
-            valueText={(i) => `${weekName(i)}, ${format(values[i])}`}
+            valueText={(i) => `${weekName(weeks, i)}, ${format(values[i])}`}
             unit={metric === 'workouts' ? '회' : 'kg'}
             integer={metric === 'workouts'}
           />
@@ -210,6 +215,74 @@ function WeeklyCard({ weeks }: { weeks: WeekTotal[] }) {
         caption={`최근 ${WEEKS}주 주별 ${metricName}`}
         headers={['주', metricName]}
         rows={weeks.map((w, i) => [formatWeekRange(w.start), format(values[i])])}
+      />
+    </section>
+  )
+}
+
+/**
+ * 유산소. 이번 주에 한 시간과 최근 12주의 주별 시간(분). 유산소 기록이 하나도 없으면 그리지 않는다.
+ * 유산소는 볼륨과 부위별 세트에 들어가지 않아서 따로 보여 준다.
+ */
+function CardioCard({ data, now }: { data: StatsData; now: number }) {
+  const [picked, setPicked] = useState<number | null>(null)
+  if (!hasCardioSessions(data.sessions, data.exercises)) return null
+
+  const weeks = weeklyCardio(data.sessions, data.exercises, { weeks: WEEKS, now })
+  const last = weeks.length - 1
+  const found = weeks.findIndex((w) => w.start === picked)
+  const selected = found >= 0 ? found : last
+  // 그래프는 분으로 그린다(1분이 안 되는 시간도 막대가 보이게 올림).
+  const minutes = weeks.map((w) => Math.ceil(w.seconds / 60))
+  const average = weeks.reduce((sum, w) => sum + w.seconds, 0) / Math.max(1, weeks.length)
+
+  return (
+    <section aria-labelledby="cardio-title" className="mt-3 rounded-2xl border border-line bg-surface p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="cardio-title" className="font-bold text-ink">
+          유산소
+        </h2>
+        <p className="text-xs text-muted">최근 {WEEKS}주</p>
+      </div>
+
+      <div className="mt-3">
+        <ChartReadout
+          value={formatCardioTime(weeks[selected].seconds)}
+          label={weekName(weeks, selected)}
+          aside={
+            <>
+              {WEEKS}주 평균
+              <br />
+              <span className="font-semibold text-ink">{formatCardioTime(Math.round(average / 60) * 60)}</span>
+            </>
+          }
+        />
+      </div>
+
+      <div className="mt-2">
+        {minutes.every((v) => v === 0) ? (
+          <p className="flex h-40 items-center justify-center text-sm text-muted">
+            최근 {WEEKS}주에는 유산소 기록이 없습니다.
+          </p>
+        ) : (
+          <ColumnChart
+            values={minutes}
+            labels={weeks.map((w) => shortDate(w.start))}
+            strongLabel={last}
+            selected={selected}
+            onSelect={(i) => setPicked(weeks[i].start)}
+            name="주별 유산소 시간 그래프"
+            valueText={(i) => `${weekName(weeks, i)}, ${formatCardioTime(weeks[i].seconds)}`}
+            unit="분"
+            integer
+          />
+        )}
+      </div>
+      <p className="mt-1 text-xs text-muted">유산소 종목의 완료한 세트 시간을 주마다 더한 값입니다(웜업 제외).</p>
+      <ChartTable
+        caption={`최근 ${WEEKS}주 주별 유산소 시간`}
+        headers={['주', '유산소 시간']}
+        rows={weeks.map((w) => [formatWeekRange(w.start), formatCardioTime(w.seconds)])}
       />
     </section>
   )
@@ -346,10 +419,10 @@ function ExerciseList({ data }: { data: StatsData }) {
                 : o.maxReps !== null
                   ? { label: '최다 횟수', value: formatMetric('maxReps', o.maxReps) }
                   : o.maxDuration !== null
-                    ? { label: '최장 시간', value: formatMetric('maxDuration', o.maxDuration) }
+                    ? { label: '최장 시간', value: formatMetric('maxDuration', o.maxDuration, ex) }
                     : null
           return (
-            <li key={o.exerciseId}>
+            <li key={o.exerciseId} className="min-w-0">
               <Link
                 to={`/exercises/${o.exerciseId}`}
                 className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:bg-surface-2"

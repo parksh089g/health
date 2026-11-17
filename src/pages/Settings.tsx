@@ -1,6 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
 import { AiSettings } from '../components/AiSettings'
+import { PlateSettings } from '../components/PlateSettings'
+import { SyncSettings } from '../components/SyncSettings'
+import { WeeklyGoalSettings } from '../components/WeeklyGoalSettings'
 import { NumberField } from '../components/NumberField'
 import { Dialog } from '../components/Dialog'
 import { Toggle } from '../components/Toggle'
@@ -173,7 +176,13 @@ export default function Settings() {
         </button>
       </section>
 
+      <WeeklyGoalSettings />
+
+      <PlateSettings />
+
       <AiSettings />
+
+      <SyncSettings />
 
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="백업">
         <h2 className="font-bold text-ink">백업</h2>

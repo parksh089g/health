@@ -50,17 +50,33 @@ describe('CSV 내보내기', () => {
     const lines = parseLines(await exportCsv())
     expect(lines).toEqual([
       CSV_COLUMNS.join(','),
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,,,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,,8.5,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,,,"컨디션 좋음, 다음엔 65"',
-      '2026-11-16,오후 7:05,풀업,등,맨몸,2,,10,5,,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,W,예,20,10,,,"컨디션 좋음, 다음엔 65",,,',
+      '2026-11-16,오후 7:05,스쿼트,하체,바벨,1,,60,8,,8.5,"컨디션 좋음, 다음엔 65",,,',
+      '2026-11-16,오후 7:05,풀업,등,맨몸,1,,,10,,,"컨디션 좋음, 다음엔 65",,,',
+      '2026-11-16,오후 7:05,풀업,등,맨몸,2,,10,5,,,"컨디션 좋음, 다음엔 65",,,',
       // 시간 종목은 횟수 칸을 비우고 시간(초) 칸에 적는다.
-      '2026-11-16,오후 7:05,플랭크,코어,맨몸,1,,,,60,,"컨디션 좋음, 다음엔 65"',
+      '2026-11-16,오후 7:05,플랭크,코어,맨몸,1,,,,60,,"컨디션 좋음, 다음엔 65",,,',
     ])
   })
 
-  it('시간(초) 칸은 횟수 다음, RPE와 운동 메모 앞에 있다', () => {
-    expect(CSV_COLUMNS.slice(-4)).toEqual(['횟수', '시간(초)', 'RPE', '운동 메모'])
+  it('시간(초) 칸은 횟수 다음, RPE와 운동 메모 앞에 있고, 유산소 칸은 맨 뒤에 붙는다', () => {
+    expect(CSV_COLUMNS.slice(-7)).toEqual(['횟수', '시간(초)', 'RPE', '운동 메모', '거리(km)', '층', '강도'])
+  })
+
+  it('유산소 세트는 시간(초)과 거리, 층, 강도 칸에 적는다', async () => {
+    const id = await startWorkout(new Date(2026, 10, 16, 19, 5).getTime())
+    await addExercisesToWorkout(id, ['seed:stepmill', 'seed:treadmill', 'seed:jump-rope'])
+    const [stepmill, treadmill, rope] = (await loadWorkoutDetail(id))!.items
+    await updateSet(stepmill.sets[0].id, { durationSec: 1800, floors: 120, level: 8, isDone: true })
+    await updateSet(treadmill.sets[0].id, { durationSec: 750, distanceKm: 2.25, level: 9.5, rpe: 7, isDone: true })
+    await updateSet(rope.sets[0].id, { durationSec: 300, isDone: true })
+    await finishWorkout(id, { endedAt: Date.now() })
+
+    expect(parseLines(await exportCsv()).slice(1)).toEqual([
+      '2026-11-16,오후 7:05,스텝밀,유산소,머신,1,,,,1800,,,,120,8',
+      '2026-11-16,오후 7:05,러닝머신,유산소,머신,1,,,,750,7,,2.25,,9.5',
+      '2026-11-16,오후 7:05,줄넘기,유산소,기타,1,,,,300,,,,,',
+    ])
   })
 
   it('기록이 없으면 머리줄만 있다', async () => {

@@ -7,7 +7,7 @@ import { devices } from 'playwright'
 import { sampleBackupFile } from './sample-backup.js'
 
 /** 지금 백업 파일 형식의 버전(src/lib/backup.ts의 BACKUP_VERSION). 형식을 바꾸면 여기도 같이 올린다. */
-export const BACKUP_VERSION = 3
+export const BACKUP_VERSION = 4
 
 /** 누르기, 입력 같은 동작 하나를 기다리는 시간(ms). 요소를 못 찾으면 이 시간 뒤에 시나리오가 멈춘다. */
 const ACTION_TIMEOUT = 15_000
@@ -73,9 +73,16 @@ export async function openPhone(browser, { baseUrl, shotsDir, checks }) {
       await page.emulateMedia({ colorScheme: 'light' })
     },
 
-    /** 360px 폭에서 가로로 넘치는 것이 없는지 본다. */
+    /**
+     * 화면 폭(360px 등)에서 가로로 넘치는 것이 없는지 본다.
+     * 폰 흉내에서는 넘친 내용을 따라 window.innerWidth도 커지므로, 정해 둔 화면 폭과 비교한다.
+     */
     async noOverflow(label) {
-      const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      const width = page.viewportSize()?.width ?? 360
+      const over = await page.evaluate(
+        (width) => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - width,
+        width,
+      )
       check(over <= 0, `${label}: 가로 스크롤 없음 (넘침 ${over}px)`)
     },
 

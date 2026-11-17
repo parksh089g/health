@@ -6,10 +6,13 @@ import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PageHeader } from '../components/PageHeader'
 import { SaveAsRoutine } from '../components/SaveAsRoutine'
+import { SupersetFrame } from '../components/SupersetFrame'
 import { formatDay, formatDuration, formatTime, formatVolume } from '../lib/format'
 import { findNewRecords } from '../lib/history'
+import { MISSING_EXERCISE_NAME } from '../lib/routines'
+import { supersetPositions } from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
-import { deleteWorkout, loadWorkoutDetail, repeatWorkout, totalVolume, updateWorkoutMemo } from '../lib/workouts'
+import { deleteWorkout, itemsVolume, loadWorkoutDetail, repeatWorkout, updateWorkoutMemo } from '../lib/workouts'
 
 /** 기록 상세. 지난 운동의 세트를 고치거나 지우고, 같은 종목으로 다시 시작할 수 있다. */
 export default function HistoryDetail() {
@@ -28,6 +31,7 @@ export default function HistoryDetail() {
   const { workout, items } = detail
   const endedAt = workout.endedAt ?? workout.startedAt
   const allSets = items.flatMap((item) => item.sets)
+  const positions = supersetPositions(items.map((item) => item.we))
 
   const repeat = async () => {
     const result = await repeatWorkout(id)
@@ -50,7 +54,7 @@ export default function HistoryDetail() {
 
       <main className="flex-1 px-3 pb-10 pt-3">
         <p className="px-1 text-sm tabular-nums text-muted">
-          종목 {items.length}개 · {allSets.filter((s) => s.isDone).length}세트 · 볼륨 {formatVolume(totalVolume(allSets))}kg
+          종목 {items.length}개 · {allSets.filter((s) => s.isDone).length}세트 · 볼륨 {formatVolume(itemsVolume(items))}kg
           {records && records.length > 0 && (
             <span className="font-semibold text-accent"> · 새 기록 {records.length}개</span>
           )}
@@ -59,16 +63,17 @@ export default function HistoryDetail() {
         <MemoField key={workout.id} workoutId={workout.id} initial={workout.memo} />
         <AiFeedbackCard key={`ai-${workout.id}`} workoutId={workout.id} />
 
-        <div className="mt-3 grid gap-3">
+        {/* 슈퍼세트로 한 종목들은 묶음으로 보여 주기만 한다(묶고 푸는 것은 운동 중에만). */}
+        <div className="mt-3">
           {items.map((item, index) => (
-            <ExerciseCard
+            <SupersetFrame
               key={item.we.id}
-              item={item}
-              mode="history"
-              index={index}
-              count={items.length}
-              records={records}
-            />
+              position={positions[index]}
+              previousName={index > 0 ? (items[index - 1].exercise?.name ?? MISSING_EXERCISE_NAME) : null}
+              name={item.exercise?.name ?? MISSING_EXERCISE_NAME}
+            >
+              <ExerciseCard item={item} mode="history" index={index} count={items.length} records={records} />
+            </SupersetFrame>
           ))}
         </div>
 

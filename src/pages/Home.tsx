@@ -3,21 +3,13 @@ import { Link, useNavigate } from 'react-router-dom'
 import { BackupReminder } from '../components/BackupReminder'
 import { PlusIcon } from '../components/icons'
 import { RoutineStartDialog } from '../components/RoutineStartDialog'
+import { WeekCard } from '../components/WeekCard'
 import { WorkoutSummaryRow } from '../components/WorkoutSummaryRow'
 import { formatClock, formatDay } from '../lib/format'
 import { loadRoutineViews, summarizeNames, type RoutineView } from '../lib/routines'
 import { useNow } from '../lib/useNow'
 import { useStartRoutine } from '../lib/useStartRoutine'
-import {
-  countThisWeek,
-  daysWorkedThisWeek,
-  getActiveWorkout,
-  loadWorkoutDetail,
-  loadWorkoutSummaries,
-  startWorkout,
-} from '../lib/workouts'
-
-const WEEK_LABELS = ['월', '화', '수', '목', '금', '토', '일']
+import { getActiveWorkout, loadWorkoutDetail, loadWorkoutSummaries, startWorkout } from '../lib/workouts'
 
 export default function Home() {
   const navigate = useNavigate()
@@ -40,8 +32,6 @@ export default function Home() {
   const summaries = data?.summaries ?? []
   const routines = data?.routines ?? []
   const finished = summaries.map((s) => s.workout)
-  const weekDays = daysWorkedThisWeek(finished, now)
-  const todayIndex = (new Date(now).getDay() + 6) % 7
 
   return (
     <div className="px-4 pt-6">
@@ -89,28 +79,7 @@ export default function Home() {
       {/* 운동 시작 버튼과 루틴 아래에 둬서 버튼을 밀어내지 않는다. 운동 중에는 화면이 붐비니 보이지 않는다. */}
       {data !== undefined && !active && <BackupReminder finishedWorkouts={summaries.length} now={now} />}
 
-      <section className="mt-6 rounded-2xl border border-line bg-surface p-4" aria-label="이번 주 운동">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-bold text-ink">이번 주 운동</h2>
-          <p className="text-ink">
-            <span className="text-2xl font-bold tabular-nums">{countThisWeek(finished, now)}</span>
-            <span className="ml-0.5 text-sm text-muted">회</span>
-          </p>
-        </div>
-        <ol className="mt-3 grid grid-cols-7 gap-1 text-center">
-          {WEEK_LABELS.map((label, i) => (
-            <li key={label} className="flex flex-col items-center gap-1">
-              <span
-                aria-label={`${label}요일 ${weekDays[i] ? '운동함' : '운동 안 함'}`}
-                className={`size-8 rounded-full ${weekDays[i] ? 'bg-accent' : 'bg-surface-2'} ${
-                  i === todayIndex ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface' : ''
-                }`}
-              />
-              <span className={`text-xs ${i === todayIndex ? 'font-bold text-ink' : 'text-muted'}`}>{label}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <WeekCard workouts={finished} now={now} />
 
       <section className="mt-6" aria-label="최근 운동">
         <div className="flex items-baseline justify-between">

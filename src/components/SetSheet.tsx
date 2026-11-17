@@ -1,7 +1,8 @@
 import { useEffect, type ReactNode } from 'react'
 import type { SetEntry } from '../db'
-import { formatSeconds, formatWeight, setSeconds } from '../lib/measure'
+import { cardioSetParts, formatSeconds, formatWeight, setSeconds } from '../lib/measure'
 import { RPE_VALUES, updateSet } from '../lib/workouts'
+import { NumberField } from './NumberField'
 import { Toggle } from './Toggle'
 
 interface SetSheetProps {
@@ -11,6 +12,8 @@ interface SetSheetProps {
   label: string
   /** 맨몸 종목이면 무게를 추가 무게("+10kg")로 보여 준다. */
   addedWeight?: boolean
+  /** 유산소 종목이면 요약을 "30분 · 120층"처럼 쓰고, 기구의 강도를 적는 칸을 둔다. */
+  cardio?: boolean
   /** 바깥이나 닫기를 누르거나 Esc를 눌렀을 때 */
   onClose: () => void
   /** "세트 삭제"를 눌렀을 때. 바로 지울지 한 번 더 물을지는 부르는 쪽이 정한다. */
@@ -19,9 +22,14 @@ interface SetSheetProps {
 
 /**
  * "60kg × 8회", 무게가 없으면 "8회", 시간 세트는 "60초"나 "10kg × 60초", 추가 무게는 "+10kg × 8회".
- * 아직 아무것도 적지 않았으면 null
+ * 유산소 세트는 "30분 · 120층"(강도는 아래 칸에 따로 보인다). 아직 아무것도 적지 않았으면 null
  */
-function setSummary(set: Pick<SetEntry, 'weightKg' | 'reps' | 'durationSec'>, addedWeight: boolean): string | null {
+function setSummary(
+  set: Pick<SetEntry, 'weightKg' | 'reps' | 'durationSec' | 'distanceKm' | 'floors'>,
+  addedWeight: boolean,
+  cardio: boolean,
+): string | null {
+  if (cardio) return cardioSetParts(set).join(' · ') || null
   const seconds = setSeconds(set)
   const reps = set.reps ?? 0
   const amount = seconds > 0 ? formatSeconds(seconds) : reps > 0 ? `${reps}회` : null
@@ -33,8 +41,9 @@ function setSummary(set: Pick<SetEntry, 'weightKg' | 'reps' | 'durationSec'>, ad
 /**
  * 세트 하나의 설정 창. 세트 번호를 누르면 아래에서 올라온다.
  * 웜업 표시, 힘든 정도(RPE), 세트 삭제를 한곳에 모아서 세트 줄에는 칸을 더 두지 않는다.
+ * 유산소 세트에는 기구의 강도(레벨이나 속도)를 적는 칸이 더 있다.
  */
-export function SetSheet({ open, set, label, addedWeight = false, onClose, onDelete }: SetSheetProps) {
+export function SetSheet({ open, set, label, addedWeight = false, cardio = false, onClose, onDelete }: SetSheetProps) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -47,7 +56,7 @@ export function SetSheet({ open, set, label, addedWeight = false, onClose, onDel
   if (!open) return null
 
   const title = set.isWarmup ? '웜업 세트' : `${label}세트`
-  const summary = setSummary(set, addedWeight)
+  const summary = setSummary(set, addedWeight, cardio)
   const rpe = set.rpe ?? null
 
   // RPE는 고르면 바로 닫는다. 세트를 끝낼 때마다 적는 값이라 누르는 횟수를 줄인다.
@@ -65,10 +74,10 @@ export function SetSheet({ open, set, label, addedWeight = false, onClose, onDel
         role="dialog"
         aria-modal="true"
         aria-label={`${title} 설정`}
-        className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-xl"
+        className="max-h-full w-full max-w-sm overflow-y-auto rounded-2xl bg-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="flex items-baseline gap-2 text-lg font-bold text-ink">
+        <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg font-bold text-ink">
           {title}
           {summary && <span className="text-[15px] font-medium tabular-nums text-muted">{summary}</span>}
         </h2>
@@ -83,10 +92,31 @@ export function SetSheet({ open, set, label, addedWeight = false, onClose, onDel
         >
           <span className="min-w-0 flex-1">
             <span className="block font-semibold text-ink">웜업 세트</span>
-            <span className="block text-sm text-muted">볼륨 계산에서 빠집니다.</span>
+            <span className="block text-sm text-muted">{cardio ? '유산소 시간 합계에서 빠집니다.' : '볼륨 계산에서 빠집니다.'}</span>
           </span>
           <Toggle on={set.isWarmup} />
         </button>
+
+        {cardio && (
+          <div className="mt-4 border-t border-line pt-4">
+            <div className="flex items-center gap-3">
+              <p className="min-w-0 flex-1 font-semibold text-ink">강도</p>
+              <div className="w-28 shrink-0">
+                <NumberField
+                  decimal
+                  unit=""
+                  ariaLabel="강도"
+                  placeholder="없음"
+                  value={set.level ?? null}
+                  onChange={(level) => void updateSet(set.id, { level })}
+                />
+              </div>
+            </div>
+            <p className="mt-2 break-keep text-sm leading-snug text-muted">
+              기구에 표시되는 레벨이나 속도입니다. 적지 않아도 됩니다.
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 border-t border-line pt-4">
           <p id={`rpe-${set.id}`} className="font-semibold text-ink">
@@ -109,7 +139,9 @@ export function SetSheet({ open, set, label, addedWeight = false, onClose, onDel
             </button>
           </div>
           <p className="mt-2 break-keep text-sm leading-snug text-muted">
-            10은 더 못 하는 정도, 9는 1회, 8은 2회 더 할 수 있는 정도입니다.
+            {cardio
+              ? '10은 더 못 하는 정도, 8은 조금 더 할 수 있는 정도, 6은 편하게 이어 갈 수 있는 정도입니다.'
+              : '10은 더 못 하는 정도, 9는 1회, 8은 2회 더 할 수 있는 정도입니다.'}
           </p>
         </div>
 

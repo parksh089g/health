@@ -5,15 +5,18 @@ export interface SeedExercise {
   name: string
   bodyPart: BodyPart
   equipment: Equipment
-  /** 시간으로 재는 종목(플랭크 등)이면 'time'. 없으면 횟수 */
-  measure?: 'time'
+  /** 시간으로 재는 종목(플랭크 등)이면 'time', 유산소 종목이면 'cardio'. 없으면 횟수 */
+  measure?: 'time' | 'cardio'
+  /** 유산소 종목에서 시간과 함께 적는 값. 없으면 시간만 적는다. */
+  cardioMetric?: 'distance' | 'floors'
 }
 
 /**
  * 기본 종목. id는 바꾸지 않는다(기록이 이 id를 가리킨다).
  * 새 종목을 여기에 더하면 앱을 열 때 자동으로 추가된다. 같은 이름의 내 종목이 이미 있으면 그 종목을 그대로 쓴다.
  * 시간으로 재는 종목(플랭크 등)은 measure를 'time'으로 둔다. 세트에 횟수 대신 버틴 시간(초)을 적는다.
- * 무게를 덜어 주는 종목(어시스트 풀업 머신 등)은 추천과 기록 계산이 맞지 않아 넣지 않는다.
+ * 유산소 종목은 measure를 'cardio'로 두고, 시간과 함께 거리(distance)나 층수(floors)를 적을지 cardioMetric으로 정한다.
+ * 무게를 덜어 주는 보조 머신(어시스트 풀업 등)은 equipment를 'assisted'로 둔다. 적는 무게는 보조 무게라 낮을수록 어렵다.
  */
 export const SEED_EXERCISES: SeedExercise[] = [
   // 가슴
@@ -29,6 +32,11 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:smith-bench-press', name: '스미스 머신 벤치프레스', bodyPart: 'chest', equipment: 'machine' },
   { id: 'seed:dumbbell-fly', name: '덤벨 플라이', bodyPart: 'chest', equipment: 'dumbbell' },
   { id: 'seed:push-up', name: '푸시업', bodyPart: 'chest', equipment: 'bodyweight' },
+  { id: 'seed:incline-machine-press', name: '인클라인 머신 벤치프레스', bodyPart: 'chest', equipment: 'machine' },
+  { id: 'seed:decline-machine-press', name: '디클라인 머신 벤치프레스', bodyPart: 'chest', equipment: 'machine' },
+  { id: 'seed:smith-incline-bench-press', name: '스미스 머신 인클라인 벤치프레스', bodyPart: 'chest', equipment: 'machine' },
+  { id: 'seed:cable-fly', name: '케이블 플라이', bodyPart: 'chest', equipment: 'cable' },
+  { id: 'seed:assisted-dips', name: '어시스트 딥스', bodyPart: 'chest', equipment: 'assisted' },
   // 등
   { id: 'seed:deadlift', name: '데드리프트', bodyPart: 'back', equipment: 'barbell' },
   { id: 'seed:barbell-row', name: '바벨 로우', bodyPart: 'back', equipment: 'barbell' },
@@ -45,6 +53,14 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:barbell-shrug', name: '바벨 슈러그', bodyPart: 'back', equipment: 'barbell' },
   { id: 'seed:dumbbell-shrug', name: '덤벨 슈러그', bodyPart: 'back', equipment: 'dumbbell' },
   { id: 'seed:dead-hang', name: '매달리기', bodyPart: 'back', equipment: 'bodyweight', measure: 'time' },
+  { id: 'seed:assisted-pull-up', name: '어시스트 풀업', bodyPart: 'back', equipment: 'assisted' },
+  { id: 'seed:assisted-chin-up', name: '어시스트 친업', bodyPart: 'back', equipment: 'assisted' },
+  { id: 'seed:machine-lat-pulldown', name: '머신 랫풀다운', bodyPart: 'back', equipment: 'machine' },
+  { id: 'seed:high-row-machine', name: '하이 로우 머신', bodyPart: 'back', equipment: 'machine' },
+  { id: 'seed:low-row-machine', name: '로우 로우 머신', bodyPart: 'back', equipment: 'machine' },
+  { id: 'seed:close-grip-lat-pulldown', name: '클로즈 그립 랫풀다운', bodyPart: 'back', equipment: 'cable' },
+  { id: 'seed:one-arm-cable-row', name: '원암 케이블 로우', bodyPart: 'back', equipment: 'cable' },
+  { id: 'seed:chest-supported-t-bar-row', name: '체스트 서포티드 티바 로우', bodyPart: 'back', equipment: 'machine' },
   // 하체
   { id: 'seed:squat', name: '스쿼트', bodyPart: 'legs', equipment: 'barbell' },
   { id: 'seed:romanian-deadlift', name: '루마니안 데드리프트', bodyPart: 'legs', equipment: 'barbell' },
@@ -67,6 +83,15 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:cable-glute-kickback', name: '케이블 글루트 킥백', bodyPart: 'legs', equipment: 'cable' },
   { id: 'seed:seated-calf-raise', name: '시티드 카프 레이즈', bodyPart: 'legs', equipment: 'machine' },
   { id: 'seed:wall-sit', name: '월 싯', bodyPart: 'legs', equipment: 'bodyweight', measure: 'time' },
+  { id: 'seed:pendulum-squat', name: '펜듈럼 스쿼트', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:v-squat', name: '브이 스쿼트', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:belt-squat', name: '벨트 스쿼트', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:lying-leg-curl', name: '라잉 레그 컬', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:seated-leg-curl', name: '시티드 레그 컬', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:machine-hip-thrust', name: '힙 쓰러스트 머신', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:machine-glute-kickback', name: '글루트 킥백 머신', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:smith-split-squat', name: '스미스 머신 스플릿 스쿼트', bodyPart: 'legs', equipment: 'machine' },
+  { id: 'seed:cable-pull-through', name: '케이블 풀 스루', bodyPart: 'legs', equipment: 'cable' },
   // 어깨
   { id: 'seed:overhead-press', name: '오버헤드 프레스', bodyPart: 'shoulders', equipment: 'barbell' },
   { id: 'seed:dumbbell-shoulder-press', name: '덤벨 숄더 프레스', bodyPart: 'shoulders', equipment: 'dumbbell' },
@@ -79,6 +104,10 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:cable-lateral-raise', name: '케이블 레터럴 레이즈', bodyPart: 'shoulders', equipment: 'cable' },
   { id: 'seed:upright-row', name: '업라이트 로우', bodyPart: 'shoulders', equipment: 'barbell' },
   { id: 'seed:reverse-pec-deck', name: '리버스 펙덱 플라이', bodyPart: 'shoulders', equipment: 'machine' },
+  { id: 'seed:machine-lateral-raise', name: '레터럴 레이즈 머신', bodyPart: 'shoulders', equipment: 'machine' },
+  { id: 'seed:smith-shoulder-press', name: '스미스 머신 숄더 프레스', bodyPart: 'shoulders', equipment: 'machine' },
+  { id: 'seed:cable-rear-delt-fly', name: '케이블 리어 델트 플라이', bodyPart: 'shoulders', equipment: 'cable' },
+  { id: 'seed:cable-front-raise', name: '케이블 프론트 레이즈', bodyPart: 'shoulders', equipment: 'cable' },
   // 팔
   { id: 'seed:barbell-curl', name: '바벨 컬', bodyPart: 'arms', equipment: 'barbell' },
   { id: 'seed:dumbbell-curl', name: '덤벨 컬', bodyPart: 'arms', equipment: 'dumbbell' },
@@ -94,6 +123,12 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:overhead-triceps-extension', name: '오버헤드 트라이셉스 익스텐션', bodyPart: 'arms', equipment: 'dumbbell' },
   { id: 'seed:triceps-kickback', name: '트라이셉스 킥백', bodyPart: 'arms', equipment: 'dumbbell' },
   { id: 'seed:bench-dips', name: '벤치 딥스', bodyPart: 'arms', equipment: 'bodyweight' },
+  { id: 'seed:machine-biceps-curl', name: '바이셉스 컬 머신', bodyPart: 'arms', equipment: 'machine' },
+  { id: 'seed:machine-triceps-extension', name: '트라이셉스 익스텐션 머신', bodyPart: 'arms', equipment: 'machine' },
+  { id: 'seed:seated-dip-machine', name: '딥스 머신', bodyPart: 'arms', equipment: 'machine' },
+  { id: 'seed:rope-pushdown', name: '로프 푸시다운', bodyPart: 'arms', equipment: 'cable' },
+  { id: 'seed:cable-overhead-triceps-extension', name: '케이블 오버헤드 트라이셉스 익스텐션', bodyPart: 'arms', equipment: 'cable' },
+  { id: 'seed:cable-hammer-curl', name: '케이블 해머 컬', bodyPart: 'arms', equipment: 'cable' },
   // 코어
   { id: 'seed:crunch', name: '크런치', bodyPart: 'core', equipment: 'bodyweight' },
   { id: 'seed:hanging-leg-raise', name: '행잉 레그 레이즈', bodyPart: 'core', equipment: 'bodyweight' },
@@ -104,4 +139,14 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:ab-rollout', name: '앱 롤아웃', bodyPart: 'core', equipment: 'bodyweight' },
   { id: 'seed:plank', name: '플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
   { id: 'seed:side-plank', name: '사이드 플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
+  { id: 'seed:ab-crunch-machine', name: '크런치 머신', bodyPart: 'core', equipment: 'machine' },
+  { id: 'seed:cable-woodchop', name: '케이블 우드찹', bodyPart: 'core', equipment: 'cable' },
+  // 유산소 (5단계)
+  { id: 'seed:treadmill', name: '러닝머신', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:stationary-bike', name: '실내 자전거', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:stepmill', name: '스텝밀', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'floors' },
+  { id: 'seed:elliptical', name: '일립티컬', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:rowing-machine', name: '로잉 머신', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:running', name: '달리기', bodyPart: 'cardio', equipment: 'other', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:jump-rope', name: '줄넘기', bodyPart: 'cardio', equipment: 'other', measure: 'cardio' },
 ]

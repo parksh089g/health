@@ -555,6 +555,8 @@ describe('개인 기록의 종류', () => {
       maxReps: null,
       maxDuration: 70,
       totalDuration: 100,
+      totalDistance: 0,
+      totalFloors: 0,
       workingSetCount: 2,
     })
   })
@@ -637,5 +639,36 @@ describe('통계', () => {
     expect(byId.get(PULL_UP)).toMatchObject({ maxDuration: null, bestE1rm: null, maxWeight: 10, maxReps: 9 })
     expect(byId.get(SQUAT)).toMatchObject({ maxDuration: null, maxWeight: 100 })
     expect(byId.get(SQUAT)?.bestE1rm).toBeGreaterThan(100)
+  })
+})
+
+describe('보조 머신', () => {
+  it('무게 칸 이름과 볼륨, 기록, 그래프, 웜업이 보조 무게에 맞다', async () => {
+    const { usesAssist, weightName } = await import('./measure')
+    const { exerciseVolume } = await import('./workouts')
+    const { recordKindsFor } = await import('./history')
+    const { availableMetrics, exerciseSeries } = await import('./stats')
+    const { canWarmup } = await import('./warmup')
+    const assist = { equipment: 'assisted', measure: null, bodyPart: 'back' } as const
+    expect(usesAssist(assist)).toBe(true)
+    expect(weightName(assist)).toBe('보조 무게')
+    expect(weightName({ equipment: 'bodyweight' })).toBe('추가 무게')
+    expect(weightName({ equipment: 'machine' })).toBe('무게')
+    const done = [{ weightKg: 20, reps: 8, isWarmup: false, isDone: true }]
+    expect(exerciseVolume(done, assist)).toBe(0)
+    expect(exerciseVolume(done, { equipment: 'machine' })).toBe(160)
+    expect(recordKindsFor(assist)).toEqual(['maxReps'])
+    const sessions = [
+      {
+        workout: { id: 'w', date: '', startedAt: 1, endedAt: 2, memo: '' },
+        we: { id: 'we', workoutId: 'w', exerciseId: 'e', order: 0, memo: '' },
+        sets: [{ id: 's', workoutExerciseId: 'we', order: 0, ...done[0] }],
+      },
+    ]
+    const points = exerciseSeries(sessions, assist)
+    expect(points[0]).toMatchObject({ maxReps: 8, topWeight: null, volume: 0, bestE1rm: null })
+    expect(availableMetrics(points, assist)).toEqual(['maxReps'])
+    expect(availableMetrics(exerciseSeries(sessions), { equipment: 'machine', measure: null })).toContain('topWeight')
+    expect(canWarmup(assist)).toBe(false)
   })
 })

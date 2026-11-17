@@ -21,10 +21,25 @@ export const SETTING_KEYS = {
   aiUsage: 'aiUsage',
   aiProfile: 'aiProfile',
   backupSnoozeUntil: 'backupSnoozeUntil',
+  /** 주에 몇 번 운동할지(1~7). 정하지 않았으면 없음. (5단계) */
+  weeklyGoal: 'weeklyGoal',
+  /** 바벨 바의 무게(kg). (5단계) */
+  barWeightKg: 'barWeightKg',
+  /** 가진 원판의 무게 목록(kg). (5단계) */
+  plates: 'plates',
+  /** 클라우드 백업의 복구 코드. 이 폰에만 둔다. (5단계) */
+  syncCode: 'syncCode',
+  /** 클라우드 백업의 진행 상태(마지막으로 올린 때, 서버의 버전 등). 이 폰에만 둔다. (5단계) */
+  syncState: 'syncState',
 } as const
 
 /** 이 폰에만 두고 백업 파일에는 넣지 않는 설정. 복원해도 이 폰의 값이 그대로 남는다. */
-export const DEVICE_ONLY_SETTING_KEYS: readonly string[] = [SETTING_KEYS.aiApiKey, SETTING_KEYS.aiUsage]
+export const DEVICE_ONLY_SETTING_KEYS: readonly string[] = [
+  SETTING_KEYS.aiApiKey,
+  SETTING_KEYS.aiUsage,
+  SETTING_KEYS.syncCode,
+  SETTING_KEYS.syncState,
+]
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const row = await db.settings.get(key)
@@ -86,4 +101,28 @@ export async function getAiProfile(): Promise<AiProfile> {
 export async function getBackupSnoozeUntil(): Promise<number | null> {
   const v = await getSetting<unknown>(SETTING_KEYS.backupSnoozeUntil, null)
   return typeof v === 'number' ? v : null
+}
+
+/** 주간 목표(주에 몇 번 운동할지, 1~7). 정하지 않았으면 null */
+export async function getWeeklyGoal(): Promise<number | null> {
+  const v = await getSetting<unknown>(SETTING_KEYS.weeklyGoal, null)
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 7 ? v : null
+}
+
+export const DEFAULT_BAR_WEIGHT_KG = 20
+/** 헬스장에 흔히 있는 원판(kg). 한쪽에 끼우는 한 장의 무게다. */
+export const DEFAULT_PLATES: readonly number[] = [25, 20, 15, 10, 5, 2.5, 1.25]
+
+/** 바벨 바의 무게(kg). 저장된 값이 이상하면 20kg. */
+export async function getBarWeightKg(): Promise<number> {
+  const v = await getSetting<unknown>(SETTING_KEYS.barWeightKg, DEFAULT_BAR_WEIGHT_KG)
+  return typeof v === 'number' && v >= 0 && v <= 50 ? v : DEFAULT_BAR_WEIGHT_KG
+}
+
+/** 가진 원판의 무게 목록(kg), 무거운 것부터. 저장된 값이 없거나 이상하면 기본 목록. */
+export async function getPlates(): Promise<number[]> {
+  const v = await getSetting<unknown>(SETTING_KEYS.plates, null)
+  if (!Array.isArray(v)) return [...DEFAULT_PLATES]
+  const plates = v.filter((x): x is number => typeof x === 'number' && x > 0 && x <= 50)
+  return plates.length > 0 ? [...new Set(plates)].sort((a, b) => b - a) : [...DEFAULT_PLATES]
 }
