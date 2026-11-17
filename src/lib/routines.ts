@@ -2,7 +2,7 @@ import { db, type Exercise, type Routine, type RoutineItem } from '../db'
 import { TARGET_REPS_RANGE } from './exercises'
 import { toDateKey } from './format'
 import { newId } from './id'
-import { isTimed, setSeconds, TARGET_SECONDS_RANGE } from './measure'
+import { isCardio, isTimed, setSeconds, TARGET_SECONDS_RANGE } from './measure'
 import { DEFAULT_SET_COUNT, addExerciseWithPrefill, getActiveWorkout } from './workouts'
 
 /**
@@ -69,15 +69,22 @@ export function normalizeRoutineInput(input: RoutineInput, timedIds: ReadonlySet
 /**
  * 지워진 종목을 빼고, 남은 종목 중 시간 종목의 id를 함께 돌려준다.
  * (루틴을 고치는 동안 종목 선택에서 종목을 지웠을 때 없는 종목이 루틴에 다시 들어가지 않게.)
+ * 유산소 종목에는 목표가 없으므로 reps를 비운다(세트 수만 저장한다).
  */
 async function withExistingExercises(input: RoutineInput): Promise<{ input: RoutineInput; timedIds: Set<string> }> {
   const valid = (id: unknown): id is string => typeof id === 'string' && id !== ''
   const ids = input.items.map((item) => item.exerciseId).filter(valid)
   const exercises = (await db.exercises.bulkGet(ids)).flatMap((e) => (e ? [e] : []))
   const existing = new Set(exercises.map((e) => e.id))
+  const cardioIds = new Set(exercises.filter(isCardio).map((e) => e.id))
+  const withoutCardioReps = (item: RoutineItem) =>
+    cardioIds.has(item.exerciseId) && item.reps !== null ? { ...item, reps: null } : item
   return {
     // id가 올바르지 않은 항목은 남겨서 normalizeRoutineInput이 이유를 알려 주게 한다.
-    input: { ...input, items: input.items.filter((item) => !valid(item.exerciseId) || existing.has(item.exerciseId)) },
+    input: {
+      ...input,
+      items: input.items.filter((item) => !valid(item.exerciseId) || existing.has(item.exerciseId)).map(withoutCardioReps),
+    },
     timedIds: new Set(exercises.filter(isTimed).map((e) => e.id)),
   }
 }

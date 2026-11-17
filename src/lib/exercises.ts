@@ -1,7 +1,15 @@
 import { db, type BodyPart, type Equipment, type Exercise } from '../db'
 import { SEED_EXERCISES } from '../seed'
 import { newId } from './id'
-import { isTimed, measureOf, TARGET_SECONDS_RANGE, type Measure } from './measure'
+import {
+  cardioMetricOf,
+  isCardio,
+  isTimed,
+  measureOf,
+  TARGET_SECONDS_RANGE,
+  type CardioMetric,
+  type Measure,
+} from './measure'
 import { REST_RANGE, isRestSeconds } from './settings'
 
 export const BODY_PARTS: { key: BodyPart; label: string }[] = [
@@ -32,9 +40,13 @@ export function equipmentLabel(key: Equipment): string {
   return EQUIPMENT.find((e) => e.key === key)?.label ?? '기타'
 }
 
-/** 종목 이름 아래에 붙이는 한 줄. "가슴 · 바벨", 시간 종목은 "코어 · 맨몸 · 시간 종목" */
+/**
+ * 종목 이름 아래에 붙이는 한 줄. "가슴 · 바벨", 시간 종목은 "코어 · 맨몸 · 시간 종목".
+ * 유산소 종목은 부위가 이미 유산소라 "유산소 · 머신"으로 두고, 부위를 다르게 정한 종목에만 "유산소"를 붙인다.
+ */
 export function exerciseKindText(exercise: Pick<Exercise, 'bodyPart' | 'equipment' | 'measure'>): string {
   const kind = `${bodyPartLabel(exercise.bodyPart)} · ${equipmentLabel(exercise.equipment)}`
+  if (isCardio(exercise)) return exercise.bodyPart === 'cardio' ? kind : `${kind} · 유산소`
   return isTimed(exercise) ? `${kind} · 시간 종목` : kind
 }
 
@@ -70,12 +82,29 @@ export interface ExerciseInput {
   name: string
   bodyPart: BodyPart
   equipment: Equipment
-  /** 세트를 횟수로 잴지 시간으로 잴지. 주지 않으면 새 종목은 횟수, 고칠 때는 그대로 둔다. */
+  /** 세트를 횟수로 잴지 시간으로 잴지, 유산소로 적을지. 주지 않으면 새 종목은 횟수, 고칠 때는 그대로 둔다. */
   measure?: Measure
+  /**
+   * 유산소 종목에서 시간과 함께 적는 값(거리, 층수). null은 시간만.
+   * 주지 않으면 새 종목은 시간만, 고칠 때는 그대로 둔다. 유산소 종목이 아니면 쓰지 않는다.
+   */
+  cardioMetric?: CardioMetric | null
 }
 
 /** 기록이 있는 종목의 재는 방법을 바꾸려 할 때의 안내 */
 export const MEASURE_LOCKED_MESSAGE = '기록이 있는 종목은 횟수와 시간을 바꿀 수 없습니다.'
+/** 기록이 있는 유산소 종목의 재는 방법이나 함께 적는 값을 바꾸려 할 때의 안내 */
+export const CARDIO_LOCKED_MESSAGE = '기록이 있는 종목은 기록 방식과 함께 적는 값을 바꿀 수 없습니다.'
+
+/** "횟수로", "시간으로", "유산소로" */
+function measureHow(exercise: Pick<Exercise, 'measure'>): string {
+  return isCardio(exercise) ? '유산소로' : isTimed(exercise) ? '시간으로' : '횟수로'
+}
+
+/** 유산소 종목이 적는 값. "시간과 거리를", "시간과 층수를", "시간만" */
+function cardioWhat(metric: CardioMetric | null): string {
+  return metric === 'distance' ? '시간과 거리를' : metric === 'floors' ? '시간과 층수를' : '시간만'
+}
 
 /** 이름의 앞뒤와 중간의 남는 공백을 정리하고 확인한다. */
 function cleanName(raw: string): string {
@@ -88,7 +117,8 @@ function cleanName(raw: string): string {
 /**
  * 내 종목 추가. 같은 이름(띄어쓰기, 대소문자 무시)이 이미 있으면 그 종목의 id를 돌려준다.
  * 그 종목이 숨겨져 있었으면 다시 보이게 한다.
- * 다만 이미 있는 종목이 재는 방법(횟수/시간)이 다르면, 다른 방식의 종목을 말없이 쓰게 되지 않도록 오류를 던진다.
+ * 다만 이미 있는 종목이 재는 방법(횟수/시간/유산소)이나 유산소에서 함께 적는 값이 다르면,
+ * 다른 방식의 종목을 말없이 쓰게 되지 않도록 오류를 던진다.
  */
 export async function addCustomExercise(input: ExerciseInput): Promise<string> {
   const name = cleanName(input.name)
@@ -97,11 +127,15 @@ export async function addCustomExercise(input: ExerciseInput): Promise<string> {
     const all = await db.exercises.toArray()
     const same = all.find((e) => nameKey(e.name) === nameKey(name))
     if (same) {
+      const hidden = same.archived ? '(숨김)' : ''
       if (input.measure !== undefined && input.measure !== measureOf(same)) {
-        const how = isTimed(same) ? '시간으로' : '횟수로'
-        const hidden = same.archived ? '(숨김)' : ''
         throw new Error(
-          `이미 있는 "${same.name}" 종목${hidden}은 ${how} 기록합니다. 그 종목을 쓰거나 다른 이름으로 만들어 주세요.`,
+          `이미 있는 "${same.name}" 종목${hidden}은 ${measureHow(same)} 기록합니다. 그 종목을 쓰거나 다른 이름으로 만들어 주세요.`,
+        )
+      }
+      if (isCardio(same) && input.cardioMetric !== undefined && input.cardioMetric !== cardioMetricOf(same)) {
+        throw new Error(
+          `이미 있는 "${same.name}" 종목${hidden}은 ${cardioWhat(cardioMetricOf(same))} 기록합니다. 그 종목을 쓰거나 다른 이름으로 만들어 주세요.`,
         )
       }
       if (same.archived) await db.exercises.update(same.id, { archived: false })
@@ -118,17 +152,23 @@ export async function addCustomExercise(input: ExerciseInput): Promise<string> {
     }
     // 횟수 종목은 칸을 비워 둔다(없으면 횟수).
     if (input.measure === 'time') exercise.measure = 'time'
+    if (input.measure === 'cardio') {
+      exercise.measure = 'cardio'
+      // 시간만 적는 종목은 칸을 비워 둔다.
+      if (input.cardioMetric) exercise.cardioMetric = input.cardioMetric
+    }
     await db.exercises.add(exercise)
     return id
   })
 }
 
 /**
- * 내 종목의 이름, 부위, 기구, 재는 방법(횟수/시간)을 바꾼다. 기록은 종목 id를 가리키므로 그대로 따라온다.
+ * 내 종목의 이름, 부위, 기구, 재는 방법(횟수/시간/유산소)을 바꾼다. 기록은 종목 id를 가리키므로 그대로 따라온다.
  * 다른 종목과 이름이 같으면(띄어쓰기, 대소문자 무시. 숨긴 종목 포함) 오류를 던진다.
  *
  * 재는 방법은 이 종목을 한 운동이 하나도 없을 때만 바꿀 수 있다(이미 적은 횟수나 시간이 뜻을 잃지 않게).
  * 바꾸면 목표 값의 단위도 달라지므로 종목의 목표와 루틴에 정해 둔 목표는 지운다.
+ * 유산소 종목에서 함께 적는 값(거리/층수/시간만)도 같은 규칙으로, 기록이 없을 때만 바꿀 수 있다.
  */
 export async function updateCustomExercise(exerciseId: string, input: ExerciseInput): Promise<void> {
   const name = cleanName(input.name)
@@ -143,10 +183,25 @@ export async function updateCustomExercise(exerciseId: string, input: ExerciseIn
       throw new Error(same.archived ? '같은 이름의 숨긴 종목이 있습니다.' : '같은 이름의 종목이 이미 있습니다.')
     }
     const changes: Partial<Exercise> = { name, bodyPart: input.bodyPart, equipment: input.equipment }
-    if (input.measure !== undefined && input.measure !== measureOf(exercise)) {
+    const measure = input.measure ?? measureOf(exercise)
+    // 유산소가 아니게 되면 함께 적는 값도 없앤다. 유산소로 바꾸면서 주지 않았으면 시간만 적는다.
+    const metric =
+      measure !== 'cardio'
+        ? null
+        : input.cardioMetric !== undefined
+          ? input.cardioMetric
+          : measureOf(exercise) === 'cardio'
+            ? cardioMetricOf(exercise)
+            : null
+    const metricChanged = metric !== cardioMetricOf(exercise)
+    if (measure !== measureOf(exercise) || metricChanged) {
       const records = await db.workoutExercises.where('exerciseId').equals(exerciseId).count()
-      if (records > 0) throw new Error(MEASURE_LOCKED_MESSAGE)
-      changes.measure = input.measure
+      const cardio = isCardio(exercise) || measure === 'cardio'
+      if (records > 0) throw new Error(cardio ? CARDIO_LOCKED_MESSAGE : MEASURE_LOCKED_MESSAGE)
+    }
+    if (metricChanged) changes.cardioMetric = metric
+    if (measure !== measureOf(exercise)) {
+      changes.measure = measure
       changes.targetReps = null
       // 루틴의 고친 시각은 그대로 둔다(홈에서 루틴 순서가 바뀌지 않게).
       for (const routine of await db.routines.toArray()) {
@@ -255,7 +310,7 @@ export const TARGET_REPS_RANGE = { min: 1, max: 100 } as const
 /** 증량 단위로 받을 수 있는 범위(kg) */
 export const INCREMENT_RANGE = { min: 0.25, max: 50 } as const
 
-/** 목표 값(횟수 종목은 횟수, 시간 종목은 초)으로 받을 수 있는 범위 */
+/** 목표 값(횟수 종목은 횟수, 시간 종목은 초)으로 받을 수 있는 범위. 유산소 종목에는 목표를 두지 않는다. */
 export function targetRange(exercise: Pick<Exercise, 'measure'> | null | undefined): { min: number; max: number } {
   return isTimed(exercise) ? TARGET_SECONDS_RANGE : TARGET_REPS_RANGE
 }
@@ -279,6 +334,7 @@ export async function updateExerciseGoal(
     const v = patch.targetReps
     // 시간 종목이면 목표 시간(초)이라 받는 범위가 다르다.
     const exercise = v === null ? undefined : await db.exercises.get(exerciseId)
+    if (isCardio(exercise)) throw new Error('유산소 종목에는 목표를 정하지 않습니다.')
     const range = targetRange(exercise)
     if (v !== null && !(Number.isInteger(v) && v >= range.min && v <= range.max)) {
       throw new Error(`${targetRangeText(exercise)} 정해 주세요.`)

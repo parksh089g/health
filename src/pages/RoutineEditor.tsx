@@ -7,7 +7,7 @@ import { ChevronRightIcon, PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { db, type Exercise, type Routine, type RoutineItem } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
-import { isTimed, targetLabel } from '../lib/measure'
+import { hasTarget, isCardio, isTimed, targetLabel } from '../lib/measure'
 import {
   MISSING_EXERCISE_NAME,
   ROUTINE_DEFAULT_SETS,
@@ -97,7 +97,8 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
         .filter((exerciseId) => !have.has(exerciseId))
         .map((exerciseId) => ({
           exerciseId,
-          sets: ROUTINE_DEFAULT_SETS,
+          // 유산소는 보통 한 번에 이어서 하므로 한 세트로 넣는다.
+          sets: isCardio(byId.get(exerciseId)) ? 1 : ROUTINE_DEFAULT_SETS,
           reps: byId.get(exerciseId)?.targetReps ?? null,
         }))
       return [...cur, ...added]
@@ -364,15 +365,18 @@ function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemo
             </button>
           </div>
         </div>
-        <div>
-          <p className="mb-1 px-1 text-xs text-muted">{target}</p>
-          <RepsField
-            value={item.reps}
-            onChange={(reps) => onChange({ reps })}
-            ariaLabel={`${name} ${target}`}
-            unit={timed ? '초' : '회'}
-          />
-        </div>
+        {/* 유산소 종목에는 목표가 없어 세트 수만 정한다. */}
+        {hasTarget(exercise) && (
+          <div>
+            <p className="mb-1 px-1 text-xs text-muted">{target}</p>
+            <RepsField
+              value={item.reps}
+              onChange={(reps) => onChange({ reps })}
+              ariaLabel={`${name} ${target}`}
+              unit={timed ? '초' : '회'}
+            />
+          </div>
+        )}
       </div>
     </li>
   )

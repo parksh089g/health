@@ -6,7 +6,7 @@ import { PageHeader } from '../components/PageHeader'
 import { PrBadge } from '../components/PrBadge'
 import { formatDuration, formatVolume } from '../lib/format'
 import { findNewRecords, formatRecordValue, recordLabel, type NewRecord } from '../lib/history'
-import { isSetEntered } from '../lib/measure'
+import { formatCardioTime, isCardio, isSetEntered, setSeconds } from '../lib/measure'
 import {
   deleteWorkout,
   finishWorkout,
@@ -41,6 +41,11 @@ export default function WorkoutDone() {
   // 횟수(시간 종목은 시간)는 적었는데 완료 체크를 하지 않은 세트
   const pending = allSets.filter((s) => !s.isDone && isSetEntered(s))
   const doneExercises = detail.items.filter((item) => item.sets.some((s) => s.isDone)).length
+  // 유산소는 볼륨에 들어가지 않으니, 했으면 완료한 세트의 시간을 따로 보여 준다.
+  const cardioSeconds = detail.items
+    .filter((item) => isCardio(item.exercise))
+    .flatMap((item) => item.sets)
+    .reduce((sum, s) => sum + (s.isDone ? setSeconds(s) : 0), 0)
 
   const save = async () => {
     if (saving) return
@@ -70,6 +75,7 @@ export default function WorkoutDone() {
           <Stat label="총 볼륨" value={`${formatVolume(totalVolume(allSets))}kg`} />
           <Stat label="종목" value={`${doneExercises}개`} />
           <Stat label="완료한 세트" value={`${doneSets.length}개`} />
+          {cardioSeconds > 0 && <Stat label="유산소" value={formatCardioTime(cardioSeconds)} wide />}
         </dl>
 
         {records && records.length > 0 && <NewRecords records={records} items={detail.items} />}
@@ -190,9 +196,9 @@ function NewRecords({ records, items }: { records: NewRecord[]; items: WorkoutIt
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-4">
+    <div className={`rounded-2xl border border-line bg-surface p-4 ${wide ? 'col-span-2' : ''}`}>
       <dt className="text-sm text-muted">{label}</dt>
       <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">{value}</dd>
     </div>

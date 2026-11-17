@@ -31,7 +31,18 @@ import {
   type ExerciseRecords,
   type RecordKind,
 } from '../lib/history'
-import { formatWeight, isTimed, measureOf, targetLabel, usesAddedWeight } from '../lib/measure'
+import {
+  cardioSetParts,
+  formatCardioTime,
+  formatWeight,
+  isCardio,
+  isTimed,
+  measureOf,
+  setSeconds,
+  setTextOptions,
+  targetLabel,
+  usesAddedWeight,
+} from '../lib/measure'
 import { TIME_STEP_SECONDS } from '../lib/recommend'
 import {
   availableMetrics,
@@ -51,7 +62,10 @@ import { useGoBack } from '../lib/useGoBack'
 /** 처음에 보여 줄 지난 기록 수 */
 const RECENT_COUNT = 8
 
-/** 종목 상세. 개인 기록, 기록 추이 그래프, 지난 기록, 그리고 종목 설정(메모, 목표, 휴식 시간, 고치기와 숨기기). */
+/**
+ * 종목 상세. 개인 기록, 기록 추이 그래프, 지난 기록, 그리고 종목 설정(메모, 목표, 휴식 시간, 고치기와 숨기기).
+ * 유산소 종목에는 목표와 추천, 세트 사이 휴식이 없어서 목표와 휴식 시간 설정을 보이지 않는다.
+ */
 export default function ExerciseDetail() {
   const { id = '' } = useParams()
   const goBack = useGoBack('/stats')
@@ -142,9 +156,13 @@ export default function ExerciseDetail() {
         {/* 머리줄(sticky)에 가리지 않게 여백을 두고 멈춘다. */}
         <div ref={settingsRef} className="scroll-mt-[calc(4rem+env(safe-area-inset-top))]">
           <NoteCard key={`note-${exercise.id}`} exercise={exercise} />
-          {/* 횟수와 시간을 바꾸면 목표 칸의 뜻과 값이 달라지므로 새로 그린다. */}
-          <GoalCard key={`goal-${exercise.id}-${measureOf(exercise)}`} exercise={exercise} />
-          <RestCard key={`rest-${exercise.id}`} exercise={exercise} defaultSeconds={defaultRest} />
+          {!isCardio(exercise) && (
+            <>
+              {/* 횟수와 시간을 바꾸면 목표 칸의 뜻과 값이 달라지므로 새로 그린다. */}
+              <GoalCard key={`goal-${exercise.id}-${measureOf(exercise)}`} exercise={exercise} />
+              <RestCard key={`rest-${exercise.id}`} exercise={exercise} defaultSeconds={defaultRest} />
+            </>
+          )}
           <section aria-labelledby="manage-title" className="mt-6">
             <h2 id="manage-title" className="font-bold text-ink">
               종목 관리
@@ -167,10 +185,19 @@ export default function ExerciseDetail() {
 }
 
 /** 개인 기록을 보여 줄 순서 */
-const RECORD_ORDER: RecordKind[] = ['bestE1rm', 'maxWeight', 'sessionVolume', 'maxReps', 'maxDuration']
+const RECORD_ORDER: RecordKind[] = [
+  'bestE1rm',
+  'maxWeight',
+  'sessionVolume',
+  'maxReps',
+  'maxDuration',
+  'maxDistance',
+  'maxFloors',
+]
 
 function RecordsCard({ records, exercise }: { records: ExerciseRecords; exercise: Exercise }) {
   const addedWeight = usesAddedWeight(exercise)
+  const cardio = isCardio(exercise)
   const rows = RECORD_ORDER.flatMap((kind) => {
     const r = records[kind]
     return r ? [r] : []
@@ -185,7 +212,12 @@ function RecordsCard({ records, exercise }: { records: ExerciseRecords; exercise
         {rows.map((r) => {
           const s = r.set
           const detail =
-            s && r.kind === 'bestE1rm'
+            s && cardio
+              ? // 유산소 기록은 그 세트의 나머지 값을 함께 보여 준다(최장 시간이면 거리나 층수, 거리나 층수면 시간).
+                (r.kind === 'maxDuration'
+                  ? cardioSetParts({ ...s, durationSec: null }, { level: true }).join(' · ')
+                  : formatCardioTime(setSeconds(s))) || null
+              : s && r.kind === 'bestE1rm'
               ? `${formatKg(s.weightKg ?? 0)}kg × ${s.reps}회로 계산`
               : s && r.kind === 'maxWeight'
                 ? `${s.reps}회`
@@ -220,15 +252,31 @@ function RecordsCard({ records, exercise }: { records: ExerciseRecords; exercise
   )
 }
 
-/** 처음 기록보다 얼마나 늘었는지. "+12.5kg", "-2회", "+15초", "같음" */
-function formatChange(metric: ProgressMetric, diff: number): string {
-  const rounded = metric === 'bestE1rm' ? Math.round(diff * 10) / 10 : diff
+/** 처음 기록보다 얼마나 늘었는지. "+12.5kg", "-2회", "+15초", "같음". 유산소 종목은 "+5분", "+1.2km" */
+function formatChange(metric: ProgressMetric, diff: number, exercise: Exercise): string {
+  const rounded = metric === 'bestE1rm' ? Math.round(diff * 10) / 10 : Math.round(diff * 100) / 100
   if (Math.abs(rounded) < 1e-9) return '같음'
-  return `${rounded > 0 ? '+' : '−'}${formatMetric(metric, Math.abs(rounded))}`
+  return `${rounded > 0 ? '+' : '−'}${formatMetric(metric, Math.abs(rounded), exercise)}`
+}
+
+/** 그래프의 세로축 단위와, 그 단위로 그릴 값. 유산소 종목의 시간은 초가 아니라 분으로 그린다. */
+function chartAxis(metric: ProgressMetric, cardio: boolean): { unit: string; integer: boolean; scale: number } {
+  if (metric === 'maxReps') return { unit: '회', integer: true, scale: 1 }
+  if (metric === 'totalFloors') return { unit: '층', integer: true, scale: 1 }
+  if (metric === 'totalDistance') return { unit: 'km', integer: false, scale: 1 }
+  if (metric === 'maxDuration' || metric === 'totalDuration') {
+    return cardio ? { unit: '분', integer: false, scale: 1 / 60 } : { unit: '초', integer: true, scale: 1 }
+  }
+  return { unit: 'kg', integer: false, scale: 1 }
 }
 
 /** 그래프 아래에 붙이는, 그 값을 어떻게 셌는지에 대한 설명 */
-function metricHint(metric: ProgressMetric, addedWeight: boolean): string {
+function metricHint(metric: ProgressMetric, addedWeight: boolean, cardio: boolean): string {
+  if (cardio) {
+    if (metric === 'totalDistance') return '그날 웜업을 뺀 세트의 거리를 모두 더한 값입니다.'
+    if (metric === 'totalFloors') return '그날 웜업을 뺀 세트의 층수를 모두 더한 값입니다.'
+    return '그날 웜업을 뺀 세트의 시간을 모두 더한 값입니다.'
+  }
   if (metric === 'bestE1rm') return `추정 1RM은 ${E1RM_MAX_REPS}회 이하 세트로 계산합니다(Epley 공식).`
   if (metric === 'volume') return '볼륨은 웜업을 뺀 세트의 중량×횟수 합입니다.'
   if (metric === 'maxReps') return '무게 없이 한 세트 중 가장 많은 횟수입니다.'
@@ -239,6 +287,7 @@ function metricHint(metric: ProgressMetric, addedWeight: boolean): string {
 
 function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: Exercise }) {
   const addedWeight = usesAddedWeight(exercise)
+  const cardio = isCardio(exercise)
   const metrics = availableMetrics(points, exercise)
   const [chosen, setChosen] = useState<ProgressMetric | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
@@ -258,7 +307,7 @@ function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: 
   const values = series.map((s) => s.v)
   const format = (v: number) => formatMetric(metric, v, exercise)
   const valueText = (i: number) => `${formatFullDate(series[i].t)}, ${label} ${format(series[i].v)}`
-  const unit = metric === 'maxReps' ? '회' : metric === 'maxDuration' || metric === 'totalDuration' ? '초' : 'kg'
+  const axis = chartAxis(metric, cardio)
 
   return (
     <section aria-labelledby="progress-title" className="mt-6">
@@ -277,14 +326,14 @@ function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: 
         <div className={metrics.length > 1 ? 'mt-3' : ''}>
           <ChartReadout
             value={format(sel.v)}
-            label={`${formatDayOfYear(sel.t)} · ${formatSetsSummary(sel.p.sets, { addedWeight })}`}
+            label={`${formatDayOfYear(sel.t)} · ${formatSetsSummary(sel.p.sets, setTextOptions(exercise))}`}
             aside={
               series.length > 1 && (
                 <>
                   첫 기록보다
                   <br />
                   <span className="font-semibold text-ink">
-                    {selected === 0 ? '첫 기록' : formatChange(metric, sel.v - first.v)}
+                    {selected === 0 ? '첫 기록' : formatChange(metric, sel.v - first.v, exercise)}
                   </span>
                 </>
               )
@@ -293,19 +342,19 @@ function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: 
         </div>
         <div className="mt-2">
           <TimeLineChart
-            points={series.map(({ t, v }) => ({ t, v }))}
+            points={series.map(({ t, v }) => ({ t, v: v * axis.scale }))}
             selected={selected}
             active={found >= 0}
             onSelect={(i) => setPicked(series[i].p.workoutId)}
             name={`${label} 그래프. ${series.length}회 기록, 최저 ${format(Math.min(...values))}, 최고 ${format(Math.max(...values))}`}
             valueText={valueText}
-            unit={unit}
-            integer={unit !== 'kg'}
+            unit={axis.unit}
+            integer={axis.integer}
           />
         </div>
         <div className="mt-1 flex items-start justify-between gap-3">
           <p className="text-xs leading-relaxed text-muted">
-            {metricHint(metric, addedWeight)} 점을 누르거나 좌우로 밀어 보세요.
+            {metricHint(metric, addedWeight, cardio)} 점을 누르거나 좌우로 밀어 보세요.
           </p>
           <Link
             to={`/history/${sel.p.workoutId}`}
@@ -327,7 +376,7 @@ function ProgressCard({ points, exercise }: { points: SessionPoint[]; exercise: 
 
 function RecentSessions({ points, exercise }: { points: SessionPoint[]; exercise: Exercise }) {
   const [all, setAll] = useState(false)
-  const addedWeight = usesAddedWeight(exercise)
+  const textOptions = setTextOptions(exercise)
   const recent = [...points].reverse()
   // 한두 개만 더 남으면 접지 않고 다 보여 준다.
   const foldable = recent.length > RECENT_COUNT + 2
@@ -348,7 +397,7 @@ function RecentSessions({ points, exercise }: { points: SessionPoint[]; exercise
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-ink">{formatDayOfYear(p.at)}</p>
                 <p className="mt-0.5 text-sm tabular-nums text-muted [overflow-wrap:anywhere]">
-                  {formatSetsSummary(p.sets, { addedWeight }) || '본 세트 없음'}
+                  {formatSetsSummary(p.sets, textOptions) || '본 세트 없음'}
                 </p>
               </div>
               <ChevronRightIcon className="size-5 shrink-0 text-muted" />
