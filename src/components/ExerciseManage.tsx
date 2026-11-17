@@ -46,6 +46,7 @@ export function ExerciseManage({ exercise, onRemoved }: ExerciseManageProps) {
           bodyPart: exercise.bodyPart,
           equipment: exercise.equipment,
           measure: measureOf(exercise),
+          cardioMetric: exercise.cardioMetric ?? null,
         }}
         // 기록(진행 중인 운동 포함)이 있으면 횟수와 시간을 바꿀 수 없다. 세는 동안에도 잠가 둔다.
         measureLocked={usage === undefined || usage.records > 0}

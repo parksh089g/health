@@ -3,7 +3,15 @@ import { Link } from 'react-router-dom'
 import type { AiExerciseSuggestion, SetEntry } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
 import { recordLabel, type NewRecord } from '../lib/history'
-import { formatSetShort, formatTarget, isTimed, usesAddedWeight } from '../lib/measure'
+import {
+  cardioMetricOf,
+  formatSetShort,
+  formatTarget,
+  hasTarget,
+  measureOf,
+  setTextOptions,
+  usesAddedWeight,
+} from '../lib/measure'
 import type { Recommendation } from '../lib/recommend'
 import { addSet, moveWorkoutExercise, removeWorkoutExercise, type WorkoutItem } from '../lib/workouts'
 import { CardTools } from './CardTools'
@@ -12,6 +20,7 @@ import { ChevronRightIcon, PlusIcon } from './icons'
 import { RecommendationBar } from './RecommendationBar'
 import { SetRow } from './SetRow'
 import { setRowColumns } from './setRowColumns'
+import { SetStopwatch } from './SetStopwatch'
 import { SupersetControl } from './SupersetControl'
 
 interface ExerciseCardProps {
@@ -37,8 +46,12 @@ function setLabels(sets: SetEntry[]): string[] {
   return sets.map((s) => (s.isWarmup ? 'W' : String(++n)))
 }
 
-/** 목표 횟수(시간 종목은 목표 시간)로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null */
+/**
+ * 목표 횟수(시간 종목은 목표 시간)로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null.
+ * 유산소 종목에는 목표가 없다.
+ */
 function knownTarget(item: WorkoutItem): number | null {
+  if (!hasTarget(item.exercise)) return null
   const v = item.we.targetReps ?? item.exercise?.targetReps
   return typeof v === 'number' && v > 0 ? v : null
 }
@@ -62,8 +75,13 @@ export function ExerciseCard({
   const target = mode === 'active' ? knownTarget(item) : null
   const note = mode === 'active' ? (exercise?.note?.trim() ?? '') : ''
   // 시간 종목은 횟수 대신 버틴 시간(초)을 적고, 맨몸 종목의 무게는 몸에 더한 무게다(비우면 맨몸).
-  const timed = isTimed(exercise)
+  // 유산소 종목은 무게와 횟수 대신 시간(분)과 거리나 층수를 적는다.
+  const measure = measureOf(exercise)
+  const timed = measure !== 'reps'
+  const cardio = measure === 'cardio'
+  const cardioMetric = cardioMetricOf(exercise)
   const addedWeight = usesAddedWeight(exercise)
+  const textOptions = setTextOptions(exercise)
   const columns = setRowColumns(mode)
 
   // 옮긴 카드가 화면 밖으로 나가면 따라가서, 이어서 더 옮길 수 있게 한다.
@@ -118,7 +136,7 @@ export function ExerciseCard({
         )}
         {mode === 'active' && lastSets.length > 0 && (
           <p className="mt-0.5 truncate text-sm text-muted">
-            지난번 {lastSets.map((s) => formatSetShort(s, { addedWeight })).join(' · ')}
+            지난번 {lastSets.map((s) => formatSetShort(s, textOptions)).join(' · ')}
           </p>
         )}
         {/* 종목 메모(시트 높이, 그립 등). 여기서는 보기만 하고 종목 상세에서 고친다. */}
@@ -153,8 +171,17 @@ export function ExerciseCard({
       <div className="mt-2 grid gap-2">
         <div className={`grid ${columns} gap-2 text-center text-xs text-muted`}>
           <span>세트</span>
-          <span>{addedWeight ? '추가 무게' : '무게'}</span>
-          <span>{timed ? '시간' : '횟수'}</span>
+          {cardio ? (
+            <>
+              <span className={cardioMetric === null ? 'col-span-2' : undefined}>시간</span>
+              {cardioMetric !== null && <span>{cardioMetric === 'distance' ? '거리' : '층수'}</span>}
+            </>
+          ) : (
+            <>
+              <span>{addedWeight ? '추가 무게' : '무게'}</span>
+              <span>{timed ? '시간' : '횟수'}</span>
+            </>
+          )}
           {mode === 'active' && <span>완료</span>}
         </div>
         {sets.map((set, i) => (
@@ -164,13 +191,25 @@ export function ExerciseCard({
             label={labels[i]}
             mode={mode}
             columns={columns}
-            timed={timed}
+            measure={measure}
+            cardioMetric={cardioMetric}
             addedWeight={addedWeight}
             onDone={onSetDone}
             recordLabels={records.filter((r) => r.setId === set.id).map((r) => recordLabel(r.kind, exercise))}
           />
         ))}
       </div>
+
+      {/* 시간을 적는 종목(시간 종목, 유산소)은 스톱워치로 재서 적을 수 있다. 세트 줄은 좁아서 그 아래에 둔다. */}
+      {mode === 'active' && timed && (
+        <SetStopwatch
+          sets={sets}
+          labels={labels}
+          targetSec={cardio ? null : target}
+          cardio={cardio}
+          onDone={onSetDone}
+        />
+      )}
 
       {/* 세트를 지우는 것은 세트 번호를 눌러 여는 창에 있다(어느 세트든 지울 수 있고, 잘못 누르기 어렵다). */}
       <div className="mt-3 flex gap-2">

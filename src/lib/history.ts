@@ -1,6 +1,19 @@
 import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { formatKg, formatVolume } from './format'
-import { formatSeconds, formatWeight, isTimed, setSeconds, usesAddedWeight } from './measure'
+import {
+  cardioMetricOf,
+  formatCardioTime,
+  formatDistance,
+  formatFloors,
+  formatSeconds,
+  formatWeight,
+  isCardio,
+  isTimed,
+  setDistance,
+  setFloors,
+  setSeconds,
+  usesAddedWeight,
+} from './measure'
 
 /**
  * 종목별 지난 기록을 꺼내고, 추정 1RM과 개인 기록(PR)을 계산한다. (2단계)
@@ -15,7 +28,7 @@ export interface ExerciseSession {
   sets: SetEntry[]
 }
 
-type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'durationSec'>
+type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'durationSec' | 'distanceKm' | 'floors'>
 
 /** 추정 1RM을 계산할 때 믿을 만한 최대 횟수. 이보다 많이 한 세트는 1RM 계산에서 뺀다. */
 export const E1RM_MAX_REPS = 12
@@ -50,11 +63,18 @@ export interface SessionSummary {
   maxDuration: number | null
   /** 시간 세트의 시간 합(초). 시간 세트가 없으면 0 */
   totalDuration: number
+  /** 유산소 세트의 거리 합(km). 없으면 0 */
+  totalDistance: number
+  /** 유산소 세트의 층수 합. 없으면 0 */
+  totalFloors: number
   /** 본 세트 수 */
   workingSetCount: number
 }
 
-/** 한 번의 기록을 요약한다. 완료한 본 세트만 본다. 시간 세트는 시간만 세고 볼륨과 추정 1RM에는 넣지 않는다. */
+/**
+ * 한 번의 기록을 요약한다. 완료한 본 세트만 본다. 시간 세트는 시간만 세고 볼륨과 추정 1RM에는 넣지 않는다.
+ * 유산소 세트도 시간 세트라서 시간과 거리, 층수만 더한다.
+ */
 export function summarizeSession(sets: SetLike[]): SessionSummary {
   const working = workingSets(sets)
   let topWeight: number | null = null
@@ -62,11 +82,15 @@ export function summarizeSession(sets: SetLike[]): SessionSummary {
   let maxReps: number | null = null
   let maxDuration: number | null = null
   let totalDuration = 0
+  let totalDistance = 0
+  let totalFloors = 0
   let volume = 0
   for (const s of working) {
     const seconds = setSeconds(s)
     if (seconds > 0) {
       totalDuration += seconds
+      totalDistance += setDistance(s)
+      totalFloors += setFloors(s)
       if (maxDuration === null || seconds > maxDuration) maxDuration = seconds
       continue
     }
@@ -84,7 +108,18 @@ export function summarizeSession(sets: SetLike[]): SessionSummary {
       maxReps = reps
     }
   }
-  return { topWeight, bestE1rm, volume, maxReps, maxDuration, totalDuration, workingSetCount: working.length }
+  return {
+    topWeight,
+    bestE1rm,
+    volume,
+    maxReps,
+    maxDuration,
+    totalDuration,
+    // 0.1 + 0.2 같은 소수 오차가 화면에 보이지 않게 맞춘다.
+    totalDistance: Math.round(totalDistance * 100) / 100,
+    totalFloors,
+    workingSetCount: working.length,
+  }
 }
 
 /**
@@ -158,9 +193,17 @@ function buildSessions(
  * 개인 기록의 종류.
  * maxWeight: 가장 무거운 본 세트, bestE1rm: 가장 높은 추정 1RM(12회 이하 세트),
  * maxReps: 맨몸 세트의 가장 많은 횟수, sessionVolume: 한 번의 운동에서 이 종목의 가장 큰 볼륨,
- * maxDuration: 시간 세트의 가장 오래 버틴 시간.
+ * maxDuration: 시간 세트의 가장 오래 버틴 시간(유산소는 한 세트의 가장 긴 운동 시간),
+ * maxDistance: 유산소 한 세트의 가장 긴 거리, maxFloors: 유산소 한 세트의 가장 많은 층수.
  */
-export type RecordKind = 'maxWeight' | 'bestE1rm' | 'maxReps' | 'sessionVolume' | 'maxDuration'
+export type RecordKind =
+  | 'maxWeight'
+  | 'bestE1rm'
+  | 'maxReps'
+  | 'sessionVolume'
+  | 'maxDuration'
+  | 'maxDistance'
+  | 'maxFloors'
 
 export const RECORD_LABELS: Record<RecordKind, string> = {
   maxWeight: '최고 중량',
@@ -168,17 +211,28 @@ export const RECORD_LABELS: Record<RecordKind, string> = {
   maxReps: '최다 횟수',
   sessionVolume: '최고 볼륨',
   maxDuration: '최장 시간',
+  maxDistance: '최장 거리',
+  maxFloors: '최다 층수',
 }
 
 /** 기록 종류를 정할 때 보는 종목 정보. 종목을 모르면(지워진 종목) 세트에 있는 대로 모두 센다. */
-export type RecordExercise = Pick<Exercise, 'equipment' | 'measure'> | null | undefined
+export type RecordExercise = Pick<Exercise, 'equipment' | 'measure' | 'cardioMetric'> | null | undefined
 
 /**
  * 이 종목에서 세는 기록의 종류.
  * 시간 종목은 최장 시간만, 맨몸 종목은 맨몸 최다 횟수와 최고 추가 무게만 센다
  * (체중을 모르니 추가 무게만으로 낸 추정 1RM과 볼륨은 기록으로 삼지 않는다).
+ * 유산소 종목은 최장 시간과, 함께 적는 값에 따라 최장 거리나 최다 층수를 센다(추정 1RM과 볼륨은 없다).
  */
 export function recordKindsFor(exercise: RecordExercise): RecordKind[] {
+  if (isCardio(exercise)) {
+    const metric = cardioMetricOf(exercise)
+    return metric === 'distance'
+      ? ['maxDuration', 'maxDistance']
+      : metric === 'floors'
+        ? ['maxDuration', 'maxFloors']
+        : ['maxDuration']
+  }
   if (isTimed(exercise)) return ['maxDuration']
   if (usesAddedWeight(exercise)) return ['maxWeight', 'maxReps']
   return ['maxWeight', 'bestE1rm', 'maxReps', 'sessionVolume']
@@ -191,11 +245,13 @@ export function recordLabel(kind: RecordKind, exercise?: RecordExercise): string
 
 /**
  * 기록 값을 화면에 쓰는 글자로. "105kg", "80.5kg"(추정 1RM은 소수 첫째 자리), "12회", "1,530kg", "90초".
- * 맨몸 종목의 최고 추가 무게는 "+10kg"
+ * 맨몸 종목의 최고 추가 무게는 "+10kg". 유산소는 "30분", "5.2km", "120층"
  */
 export function formatRecordValue(kind: RecordKind, value: number, exercise?: RecordExercise): string {
   if (kind === 'maxReps') return `${Math.round(value)}회`
-  if (kind === 'maxDuration') return formatSeconds(value)
+  if (kind === 'maxDuration') return isCardio(exercise) ? formatCardioTime(value) : formatSeconds(value)
+  if (kind === 'maxDistance') return formatDistance(value)
+  if (kind === 'maxFloors') return formatFloors(value)
   if (kind === 'sessionVolume') return `${formatVolume(value)}kg`
   if (kind === 'bestE1rm') return `${formatKg(Math.round(value * 10) / 10)}kg`
   return formatWeight(value, usesAddedWeight(exercise))
@@ -238,6 +294,8 @@ export function computeRecords(sessions: ExerciseSession[], exercise?: RecordExe
       const seconds = setSeconds(s)
       if (seconds > 0) {
         consider('maxDuration', seconds, session, s)
+        consider('maxDistance', setDistance(s), session, s)
+        consider('maxFloors', setFloors(s), session, s)
         continue
       }
       const reps = s.reps ?? 0

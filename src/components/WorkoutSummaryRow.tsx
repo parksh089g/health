@@ -21,7 +21,9 @@ export function WorkoutSummaryRow({ summary }: { summary: WorkoutSummary }) {
         <p className="font-bold text-ink">{formatDay(workout.startedAt)}</p>
         <p className="mt-0.5 truncate text-sm text-muted">{names || '종목 없음'}</p>
         <p className="mt-1 text-sm tabular-nums text-muted">
-          {formatDuration(duration)} · {setCount}세트 · {formatVolume(volume)}kg
+          {formatDuration(duration)} · {setCount}세트
+          {/* 유산소나 맨몸 운동만 한 날은 볼륨이 0이라 적지 않는다. */}
+          {volume > 0 && <> · {formatVolume(volume)}kg</>}
         </p>
       </div>
       <ChevronRightIcon className="size-5 shrink-0 text-muted" />

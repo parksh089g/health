@@ -5,14 +5,17 @@ export interface SeedExercise {
   name: string
   bodyPart: BodyPart
   equipment: Equipment
-  /** 시간으로 재는 종목(플랭크 등)이면 'time'. 없으면 횟수 */
-  measure?: 'time'
+  /** 시간으로 재는 종목(플랭크 등)이면 'time', 유산소 종목이면 'cardio'. 없으면 횟수 */
+  measure?: 'time' | 'cardio'
+  /** 유산소 종목에서 시간과 함께 적는 값. 없으면 시간만 적는다. */
+  cardioMetric?: 'distance' | 'floors'
 }
 
 /**
  * 기본 종목. id는 바꾸지 않는다(기록이 이 id를 가리킨다).
  * 새 종목을 여기에 더하면 앱을 열 때 자동으로 추가된다. 같은 이름의 내 종목이 이미 있으면 그 종목을 그대로 쓴다.
  * 시간으로 재는 종목(플랭크 등)은 measure를 'time'으로 둔다. 세트에 횟수 대신 버틴 시간(초)을 적는다.
+ * 유산소 종목은 measure를 'cardio'로 두고, 시간과 함께 거리(distance)나 층수(floors)를 적을지 cardioMetric으로 정한다.
  * 무게를 덜어 주는 종목(어시스트 풀업 머신 등)은 추천과 기록 계산이 맞지 않아 넣지 않는다.
  */
 export const SEED_EXERCISES: SeedExercise[] = [
@@ -104,4 +107,12 @@ export const SEED_EXERCISES: SeedExercise[] = [
   { id: 'seed:ab-rollout', name: '앱 롤아웃', bodyPart: 'core', equipment: 'bodyweight' },
   { id: 'seed:plank', name: '플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
   { id: 'seed:side-plank', name: '사이드 플랭크', bodyPart: 'core', equipment: 'bodyweight', measure: 'time' },
+  // 유산소 (5단계)
+  { id: 'seed:treadmill', name: '러닝머신', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:stationary-bike', name: '실내 자전거', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:stepmill', name: '스텝밀', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'floors' },
+  { id: 'seed:elliptical', name: '일립티컬', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:rowing-machine', name: '로잉 머신', bodyPart: 'cardio', equipment: 'machine', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:running', name: '달리기', bodyPart: 'cardio', equipment: 'other', measure: 'cardio', cardioMetric: 'distance' },
+  { id: 'seed:jump-rope', name: '줄넘기', bodyPart: 'cardio', equipment: 'other', measure: 'cardio' },
 ]
