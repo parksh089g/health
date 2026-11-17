@@ -10,7 +10,7 @@ import { PageHeader } from '../components/PageHeader'
 import { SupersetFrame } from '../components/SupersetFrame'
 import { getWorkoutAdvice } from '../lib/ai/advice'
 import { getAiModel } from '../lib/ai/models'
-import { formatClock } from '../lib/format'
+import { formatClock, formatDay, formatTime } from '../lib/format'
 import { findNewRecords } from '../lib/history'
 import { isCardio, isTimed } from '../lib/measure'
 import { getWorkoutRecommendations } from '../lib/recommend'
@@ -19,7 +19,7 @@ import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
 import { afterSetDone, linkWithNextExercise, supersetPositions, unlinkFromNextExercise } from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
 import { useNow } from '../lib/useNow'
-import { deleteWorkout, loadWorkoutDetail, type WorkoutItem } from '../lib/workouts'
+import { deleteWorkout, isPastWorkout, loadWorkoutDetail, type WorkoutItem } from '../lib/workouts'
 import { useRestTimer } from '../rest/context'
 import { RestTimerBar } from '../rest/RestTimerBar'
 
@@ -70,6 +70,8 @@ export default function WorkoutPage() {
   if (detail.workout.endedAt !== null) return <Navigate to={`/history/${id}`} replace />
 
   const { workout, items } = detail
+  // 지난 운동을 나중에 적는 중이면 휴식 타이머, 스톱워치, 추천, AI 추천을 쓰지 않는다(그날 이미 한 운동이라).
+  const past = isPastWorkout(workout)
   const positions = supersetPositions(items.map((item) => item.we))
 
   /**
@@ -78,6 +80,7 @@ export default function WorkoutPage() {
    * 웜업 세트는 바퀴에 들지 않으니, 묶음 안에서도 다음 종목으로 넘어가지 않고 그 종목의 휴식만큼 쉰다.
    */
   const onSetDone = (item: WorkoutItem, set: SetEntry) => {
+    if (past) return
     if (set.isWarmup) {
       if (!isCardio(item.exercise)) rest.start(item.exercise?.restSeconds)
       return
@@ -99,8 +102,10 @@ export default function WorkoutPage() {
   return (
     <>
       <PageHeader
-        title="운동 중"
-        subtitle={formatClock(now - workout.startedAt)}
+        title={past ? '지난 운동 적기' : '운동 중'}
+        subtitle={
+          past ? `${formatDay(workout.startedAt)} ${formatTime(workout.startedAt)}` : formatClock(now - workout.startedAt)
+        }
         onBack={goBack}
         right={
           <button
@@ -114,7 +119,7 @@ export default function WorkoutPage() {
       />
 
       <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-64' : 'pb-10'}`}>
-        {ai.enabled && (
+        {ai.enabled && !past && (
           <AiWorkoutPanel
             workoutId={id}
             model={ai.model}
@@ -126,9 +131,9 @@ export default function WorkoutPage() {
 
         {items.length === 0 && (
           <p className="px-2 py-8 text-center leading-relaxed text-muted">
-            오늘 할 종목을 추가해 주세요.
+            {past ? '그날 한 종목을 추가해 주세요.' : '오늘 할 종목을 추가해 주세요.'}
             <br />
-            지난번에 한 무게와 횟수가 미리 채워집니다.
+            {past ? '그날 전에 한 무게와 횟수가 미리 채워집니다.' : '지난번에 한 무게와 횟수가 미리 채워집니다.'}
           </p>
         )}
 
@@ -152,13 +157,14 @@ export default function WorkoutPage() {
                 <ExerciseCard
                   item={item}
                   mode="active"
+                  live={!past}
                   index={index}
                   count={items.length}
                   onSetDone={(set) => onSetDone(item, set)}
-                  recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
+                  recommendation={recommendOn && !past ? (recommendations.get(item.we.id) ?? null) : null}
                   records={records}
                   aiSuggestion={
-                    ai.enabled ? advice?.exercises.find((e) => e.workoutExerciseId === item.we.id) ?? null : null
+                    ai.enabled && !past ? advice?.exercises.find((e) => e.workoutExerciseId === item.we.id) ?? null : null
                   }
                 />
               </SupersetFrame>
@@ -180,7 +186,7 @@ export default function WorkoutPage() {
           onClick={() => setAskCancel(true)}
           className="mx-auto mt-8 block px-4 py-3 text-sm text-muted underline underline-offset-4"
         >
-          운동 취소
+          {past ? '적기 취소' : '운동 취소'}
         </button>
       </main>
 
@@ -188,11 +194,11 @@ export default function WorkoutPage() {
 
       <Dialog
         open={askCancel}
-        title="운동을 취소할까요?"
+        title={past ? '지난 운동 적기를 취소할까요?' : '운동을 취소할까요?'}
         onClose={() => setAskCancel(false)}
         actions={[
           { label: '취소하고 지우기', tone: 'danger', onClick: () => void cancel() },
-          { label: '계속 운동하기', onClick: () => setAskCancel(false) },
+          { label: past ? '계속 적기' : '계속 운동하기', onClick: () => setAskCancel(false) },
         ]}
       >
         지금까지 입력한 세트가 모두 지워지고 기록에 남지 않습니다.

@@ -1,7 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BackupReminder } from '../components/BackupReminder'
 import { PlusIcon } from '../components/icons'
+import { PastWorkoutDialog } from '../components/PastWorkoutDialog'
 import { RoutineStartDialog } from '../components/RoutineStartDialog'
 import { WeekCard } from '../components/WeekCard'
 import { WorkoutSummaryRow } from '../components/WorkoutSummaryRow'
@@ -9,7 +11,7 @@ import { formatClock, formatDay } from '../lib/format'
 import { loadRoutineViews, summarizeNames, type RoutineView } from '../lib/routines'
 import { useNow } from '../lib/useNow'
 import { useStartRoutine } from '../lib/useStartRoutine'
-import { getActiveWorkout, loadWorkoutDetail, loadWorkoutSummaries, startWorkout } from '../lib/workouts'
+import { getActiveWorkout, isPastWorkout, loadWorkoutDetail, loadWorkoutSummaries, startWorkout } from '../lib/workouts'
 
 export default function Home() {
   const navigate = useNavigate()
@@ -22,6 +24,7 @@ export default function Home() {
     return { activeDetail, summaries, routines }
   }, [])
   const routineStart = useStartRoutine()
+  const [pastOpen, setPastOpen] = useState(false)
 
   const start = async () => {
     const id = await startWorkout()
@@ -32,6 +35,7 @@ export default function Home() {
   const summaries = data?.summaries ?? []
   const routines = data?.routines ?? []
   const finished = summaries.map((s) => s.workout)
+  const activePast = active !== null && isPastWorkout(active.workout)
 
   return (
     <div className="px-4 pt-6">
@@ -41,10 +45,13 @@ export default function Home() {
       {data === undefined ? (
         <div className="mt-5 h-16" />
       ) : active ? (
-        <section className="mt-5 rounded-2xl border border-accent bg-accent-soft p-4" aria-label="진행 중인 운동">
-          <p className="text-sm font-semibold text-accent">진행 중인 운동</p>
-          <p className="mt-1 text-4xl font-bold tabular-nums text-ink">
-            {formatClock(now - active.workout.startedAt)}
+        <section
+          className="mt-5 rounded-2xl border border-accent bg-accent-soft p-4"
+          aria-label={activePast ? '적고 있던 지난 운동' : '진행 중인 운동'}
+        >
+          <p className="text-sm font-semibold text-accent">{activePast ? '적고 있던 지난 운동' : '진행 중인 운동'}</p>
+          <p className={`mt-1 font-bold tabular-nums text-ink ${activePast ? 'text-3xl' : 'text-4xl'}`}>
+            {activePast ? formatDay(active.workout.startedAt) : formatClock(now - active.workout.startedAt)}
           </p>
           <p className="mt-1 text-sm text-muted">
             종목 {active.items.length}개 · 완료한 세트{' '}
@@ -55,7 +62,7 @@ export default function Home() {
             onClick={() => navigate(`/workout/${active.workout.id}`)}
             className="mt-4 h-14 w-full rounded-2xl bg-accent text-lg font-bold text-on-accent active:opacity-80"
           >
-            이어서 하기
+            {activePast ? '이어서 적기' : '이어서 하기'}
           </button>
         </section>
       ) : (
@@ -84,11 +91,19 @@ export default function Home() {
       <section className="mt-6" aria-label="최근 운동">
         <div className="flex items-baseline justify-between">
           <h2 className="font-bold text-ink">최근 운동</h2>
-          {summaries.length > 0 && (
-            <Link to="/history" className="py-1 text-sm font-medium text-accent">
-              전체 보기
-            </Link>
-          )}
+          <div className="flex shrink-0 items-baseline gap-3">
+            {/* 진행 중인 운동이 있으면 지난 운동을 만들 수 없으니(한 번에 하나) 감춘다. */}
+            {data !== undefined && !active && (
+              <button type="button" onClick={() => setPastOpen(true)} className="py-1 text-sm font-medium text-accent">
+                지난 운동 추가
+              </button>
+            )}
+            {summaries.length > 0 && (
+              <Link to="/history" className="py-1 text-sm font-medium text-accent">
+                전체 보기
+              </Link>
+            )}
+          </div>
         </div>
         {summaries.length === 0 ? (
           <p className="mt-3 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
@@ -106,6 +121,7 @@ export default function Home() {
       </section>
 
       <RoutineStartDialog notice={routineStart.notice} onClose={routineStart.closeNotice} />
+      {pastOpen && <PastWorkoutDialog onClose={() => setPastOpen(false)} />}
     </div>
   )
 }

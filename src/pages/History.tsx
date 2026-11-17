@@ -1,4 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useState } from 'react'
+import { PlusIcon } from '../components/icons'
+import { PastWorkoutDialog } from '../components/PastWorkoutDialog'
 import { WorkoutSummaryRow } from '../components/WorkoutSummaryRow'
 import { formatMonth } from '../lib/format'
 import { loadWorkoutSummaries, type WorkoutSummary } from '../lib/workouts'
@@ -6,6 +9,7 @@ import { loadWorkoutSummaries, type WorkoutSummary } from '../lib/workouts'
 /** 기록 목록. 끝난 운동을 최근 것부터 달별로 묶어 보여 준다. */
 export default function History() {
   const summaries = useLiveQuery(loadWorkoutSummaries, [])
+  const [pastOpen, setPastOpen] = useState(false)
 
   const months: { month: string; rows: WorkoutSummary[] }[] = []
   for (const s of summaries ?? []) {
@@ -17,13 +21,23 @@ export default function History() {
 
   return (
     <div className="px-4 pt-6">
-      <h1 className="text-2xl font-bold text-ink">기록</h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold text-ink">기록</h1>
+        <button
+          type="button"
+          onClick={() => setPastOpen(true)}
+          className="flex h-11 shrink-0 items-center gap-1 rounded-xl bg-accent-soft px-3 text-[15px] font-bold text-accent active:opacity-70"
+        >
+          <PlusIcon className="size-4" />
+          지난 운동 추가
+        </button>
+      </div>
 
       {summaries !== undefined && summaries.length === 0 && (
         <p className="mt-5 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
           아직 기록이 없습니다.
           <br />
-          홈에서 운동을 시작해 보세요.
+          홈에서 운동을 시작하거나, 이미 한 운동은 "지난 운동 추가"로 적어 보세요.
         </p>
       )}
 
@@ -40,6 +54,8 @@ export default function History() {
           </div>
         </section>
       ))}
+
+      {pastOpen && <PastWorkoutDialog onClose={() => setPastOpen(false)} />}
     </div>
   )
 }

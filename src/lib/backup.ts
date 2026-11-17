@@ -142,7 +142,8 @@ export function parseBackup(text: string): BackupFile {
       isNum(r.startedAt) &&
       isNumOrNull(r.endedAt) &&
       isStr(r.memo) &&
-      isOptStr(r.routineId),
+      isOptStr(r.routineId) &&
+      isOptNum(r.pastEndAt),
   )
   const workoutExercises = list(
     d,

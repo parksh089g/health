@@ -81,8 +81,73 @@ export async function startWorkout(now: number = Date.now()): Promise<string> {
   })
 }
 
+/** 지난 운동을 나중에 적는 중인지(pastEndAt이 있는지). */
+export function isPastWorkout(workout: Pick<Workout, 'pastEndAt'> | undefined | null): boolean {
+  return typeof workout?.pastEndAt === 'number'
+}
+
+/** 지난 운동의 운동 시간(분) 범위 */
+export const PAST_MINUTES_RANGE = { min: 1, max: 600 } as const
+
+export interface PastWorkoutInput {
+  /** YYYY-MM-DD */
+  date: string
+  /** HH:MM (24시간) */
+  time: string
+  /** 운동 시간(분) */
+  minutes: number
+}
+
+/** 날짜(YYYY-MM-DD)와 시각(HH:MM)을 로컬 시간의 타임스탬프로. 형식이 틀리거나 없는 날짜면 null. */
+export function localTimestamp(date: string, time: string): number | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  const tm = /^(\d{2}):(\d{2})$/.exec(time)
+  if (!dm || !tm) return null
+  const [y, mo, d, h, mi] = [dm[1], dm[2], dm[3], tm[1], tm[2]].map(Number)
+  if (h > 23 || mi > 59) return null
+  const at = new Date(y, mo - 1, d, h, mi)
+  // 2월 30일처럼 없는 날짜는 다음 달로 넘어가므로 걸러 낸다.
+  if (at.getFullYear() !== y || at.getMonth() !== mo - 1 || at.getDate() !== d) return null
+  return at.getTime()
+}
+
+/** 지난 운동 입력의 문제. 괜찮으면 null. */
+export function pastWorkoutError(input: PastWorkoutInput, now: number = Date.now()): string | null {
+  const startedAt = localTimestamp(input.date, input.time)
+  if (startedAt === null) return '날짜와 시작 시각을 골라 주세요.'
+  if (startedAt >= now) return '지금보다 앞선 시각을 골라 주세요.'
+  const { min, max } = PAST_MINUTES_RANGE
+  if (!Number.isInteger(input.minutes) || input.minutes < min || input.minutes > max) {
+    return `운동 시간은 ${min}~${max}분으로 적어 주세요.`
+  }
+  return null
+}
+
+/**
+ * 지난 운동을 적기 시작한다. 그날 그 시각에 시작한 운동을 만들고, 마칠 때 끝난 시각은 시작 + 운동 시간이다
+ * (지금보다 늦으면 지금). 진행 중인 운동(지금 하는 것이든 적고 있던 지난 운동이든)이 있으면 만들지 않고
+ * 그 운동을 돌려준다. 입력이 틀리면 오류를 던진다.
+ */
+export async function startPastWorkout(
+  input: PastWorkoutInput,
+  now: number = Date.now(),
+): Promise<{ id: string; created: boolean }> {
+  const problem = pastWorkoutError(input, now)
+  if (problem !== null) throw new Error(problem)
+  const startedAt = localTimestamp(input.date, input.time) as number
+  const pastEndAt = Math.min(now, startedAt + input.minutes * 60_000)
+  return db.transaction('rw', db.workouts, async () => {
+    const active = await getActiveWorkout()
+    if (active) return { id: active.id, created: false }
+    const id = newId()
+    await db.workouts.add({ id, date: input.date, startedAt, endedAt: null, memo: '', pastEndAt })
+    return { id, created: true }
+  })
+}
+
 /**
  * 이 종목을 마지막으로 한(끝난) 운동의 완료 세트를 순서대로 돌려준다.
+ * excludeWorkoutId가 지난 운동을 적는 중인 운동이면 그날보다 앞선 기록만 본다.
  * 지난 기록이 없으면 빈 배열.
  */
 export async function getLastSets(exerciseId: string, excludeWorkoutId?: string): Promise<SetEntry[]> {
@@ -90,10 +155,14 @@ export async function getLastSets(exerciseId: string, excludeWorkoutId?: string)
   if (wes.length === 0) return []
 
   const workouts = await db.workouts.bulkGet(wes.map((we) => we.workoutId))
+  const own = excludeWorkoutId ? await db.workouts.get(excludeWorkoutId) : undefined
+  const before = own && isPastWorkout(own) ? own.startedAt : Infinity
   const candidates: { we: WorkoutExercise; startedAt: number }[] = []
   wes.forEach((we, i) => {
     const w = workouts[i]
-    if (w && w.endedAt !== null && w.id !== excludeWorkoutId) candidates.push({ we, startedAt: w.startedAt })
+    if (w && w.endedAt !== null && w.id !== excludeWorkoutId && w.startedAt < before) {
+      candidates.push({ we, startedAt: w.startedAt })
+    }
   })
   candidates.sort((a, b) => b.startedAt - a.startedAt)
 
@@ -368,7 +437,10 @@ export async function finishWorkout(
     // 완료한 세트가 없어 빠진 종목 때문에 혼자 남은 슈퍼세트 묶음을 정리한다.
     await cleanWorkoutSupersets(workoutId)
 
-    const changes: Partial<Workout> = { endedAt: opts.endedAt ?? Date.now() }
+    // 지난 운동은 적어 둔 끝난 시각으로 마친다(적은 날이 아니라 운동한 날로 남도록).
+    const workout = await db.workouts.get(workoutId)
+    const pastEndAt = isPastWorkout(workout) ? workout?.pastEndAt : null
+    const changes: Partial<Workout> = { endedAt: pastEndAt ?? opts.endedAt ?? Date.now(), pastEndAt: null }
     if (opts.memo !== undefined) changes.memo = opts.memo.trim()
     await db.workouts.update(workoutId, changes)
     return true
