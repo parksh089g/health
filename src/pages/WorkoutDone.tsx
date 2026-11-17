@@ -15,7 +15,7 @@ import {
   loadWorkoutDetail,
   markEnteredSetsDone,
   recordTimedSet,
-  totalVolume,
+  itemsVolume,
   type WorkoutItem,
 } from '../lib/workouts'
 import { releaseAudio } from '../rest/alert'
@@ -92,7 +92,7 @@ export default function WorkoutDone() {
       <main className="flex-1 px-4 pb-10 pt-4">
         <dl className="grid grid-cols-2 gap-2">
           <Stat label="운동 시간" value={formatDuration(openedAt - detail.workout.startedAt)} />
-          <Stat label="총 볼륨" value={`${formatVolume(totalVolume(allSets))}kg`} />
+          <Stat label="총 볼륨" value={`${formatVolume(itemsVolume(detail.items))}kg`} />
           <Stat label="종목" value={`${doneExercises}개`} />
           <Stat label="완료한 세트" value={`${doneSets.length}개`} />
           {cardioSeconds > 0 && <Stat label="유산소" value={formatCardioTime(cardioSeconds)} wide />}

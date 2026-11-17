@@ -29,6 +29,7 @@ export const EQUIPMENT: { key: Equipment; label: string }[] = [
   { key: 'machine', label: '머신' },
   { key: 'cable', label: '케이블' },
   { key: 'bodyweight', label: '맨몸' },
+  { key: 'assisted', label: '보조 머신' },
   { key: 'other', label: '기타' },
 ]
 

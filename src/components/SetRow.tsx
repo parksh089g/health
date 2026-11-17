@@ -23,6 +23,8 @@ interface SetRowProps {
   cardioMetric: CardioMetric | null
   /** 맨몸 종목이면 무게 칸이 추가 무게다. */
   addedWeight: boolean
+  /** 무게 칸의 이름. "무게", "추가 무게", "보조 무게" */
+  weightLabel: string
   onDone?: (set: SetEntry) => void
   /** 이 세트로 새로 세운 기록의 이름. 비어 있으면 PR 표시가 없다. */
   recordLabels: string[]
@@ -37,6 +39,7 @@ export function SetRow({
   measure,
   cardioMetric,
   addedWeight,
+  weightLabel,
   onDone,
   recordLabels,
 }: SetRowProps) {
@@ -171,7 +174,7 @@ export function SetRow({
           <NumberField
             decimal
             unit="kg"
-            ariaLabel={`${label}세트 ${addedWeight ? '추가 무게' : '무게'}`}
+            ariaLabel={`${label}세트 ${weightLabel}`}
             value={set.weightKg}
             onChange={(weightKg) => void updateSet(set.id, { weightKg })}
             dimmed={done}

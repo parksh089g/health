@@ -18,6 +18,7 @@ import { chromium } from 'playwright'
 import { preview } from 'vite'
 import * as aiCoach from './ai-coach.js'
 import * as ai from './ai.js'
+import * as assistedMachines from './assisted-machines.js'
 import * as bodyBackup from './body-backup.js'
 import * as cardioStopwatch from './cardio-stopwatch.js'
 import * as exercisesRest from './exercises-rest.js'
@@ -46,6 +47,7 @@ const SCENARIOS = {
   'weekly-goal': weeklyGoal,
   supersets,
   sync,
+  'assisted-machines': assistedMachines,
 }
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

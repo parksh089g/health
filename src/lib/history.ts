@@ -13,6 +13,7 @@ import {
   setFloors,
   setSeconds,
   usesAddedWeight,
+  usesAssist,
 } from './measure'
 
 /**
@@ -75,7 +76,7 @@ export interface SessionSummary {
  * 한 번의 기록을 요약한다. 완료한 본 세트만 본다. 시간 세트는 시간만 세고 볼륨과 추정 1RM에는 넣지 않는다.
  * 유산소 세트도 시간 세트라서 시간과 거리, 층수만 더한다.
  */
-export function summarizeSession(sets: SetLike[]): SessionSummary {
+export function summarizeSession(sets: SetLike[], assist = false): SessionSummary {
   const working = workingSets(sets)
   let topWeight: number | null = null
   let bestE1rm: number | null = null
@@ -96,7 +97,8 @@ export function summarizeSession(sets: SetLike[]): SessionSummary {
     }
     const reps = s.reps ?? 0
     if (reps <= 0) continue
-    if (isWeighted(s)) {
+    // 보조 머신의 무게는 덜어 준 무게라 볼륨과 1RM에 넣지 않고 횟수만 센다.
+    if (isWeighted(s) && !assist) {
       const w = s.weightKg as number
       volume += w * reps
       if (topWeight === null || w > topWeight) topWeight = w
@@ -235,6 +237,8 @@ export function recordKindsFor(exercise: RecordExercise): RecordKind[] {
   }
   if (isTimed(exercise)) return ['maxDuration']
   if (usesAddedWeight(exercise)) return ['maxWeight', 'maxReps']
+  // 보조 머신은 보조 무게가 낮을수록 어려워 무게 기록이 거꾸로 되므로 최다 횟수만 센다.
+  if (usesAssist(exercise)) return ['maxReps']
   return ['maxWeight', 'bestE1rm', 'maxReps', 'sessionVolume']
 }
 
@@ -288,6 +292,7 @@ export function computeRecords(sessions: ExerciseSession[], exercise?: RecordExe
     records[kind] = { kind, value, workoutId: session.workout.id, at: session.workout.startedAt, set }
   }
   const ordered = [...sessions].sort((a, b) => a.workout.startedAt - b.workout.startedAt)
+  const assist = usesAssist(exercise)
   for (const session of ordered) {
     let volume = 0
     for (const s of workingSets(session.sets)) {
@@ -300,7 +305,7 @@ export function computeRecords(sessions: ExerciseSession[], exercise?: RecordExe
       }
       const reps = s.reps ?? 0
       if (reps <= 0) continue
-      if (isWeighted(s)) {
+      if (isWeighted(s) && !assist) {
         const w = s.weightKg as number
         volume += w * reps
         consider('maxWeight', w, session, s)

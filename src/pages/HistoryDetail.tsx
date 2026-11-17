@@ -12,7 +12,7 @@ import { findNewRecords } from '../lib/history'
 import { MISSING_EXERCISE_NAME } from '../lib/routines'
 import { supersetPositions } from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
-import { deleteWorkout, loadWorkoutDetail, repeatWorkout, totalVolume, updateWorkoutMemo } from '../lib/workouts'
+import { deleteWorkout, itemsVolume, loadWorkoutDetail, repeatWorkout, updateWorkoutMemo } from '../lib/workouts'
 
 /** 기록 상세. 지난 운동의 세트를 고치거나 지우고, 같은 종목으로 다시 시작할 수 있다. */
 export default function HistoryDetail() {
@@ -54,7 +54,7 @@ export default function HistoryDetail() {
 
       <main className="flex-1 px-3 pb-10 pt-3">
         <p className="px-1 text-sm tabular-nums text-muted">
-          종목 {items.length}개 · {allSets.filter((s) => s.isDone).length}세트 · 볼륨 {formatVolume(totalVolume(allSets))}kg
+          종목 {items.length}개 · {allSets.filter((s) => s.isDone).length}세트 · 볼륨 {formatVolume(itemsVolume(items))}kg
           {records && records.length > 0 && (
             <span className="font-semibold text-accent"> · 새 기록 {records.length}개</span>
           )}

@@ -42,6 +42,7 @@ import {
   setTextOptions,
   targetLabel,
   usesAddedWeight,
+  usesAssist,
 } from '../lib/measure'
 import { TIME_STEP_SECONDS } from '../lib/recommend'
 import {
@@ -99,7 +100,7 @@ export default function ExerciseDetail() {
     )
   }
 
-  const points = exerciseSeries(sessions)
+  const points = exerciseSeries(sessions, exercise)
   const kind = exerciseKindText(exercise)
   const subtitle = exercise.isCustom ? `${kind} · 내 종목` : kind
 
@@ -659,7 +660,9 @@ function GoalCard({ exercise }: { exercise: Exercise }) {
         <p className="mt-3 text-sm leading-relaxed text-muted">
           {timed
             ? `다음 추천은 지난번에 가장 오래 버틴 시간보다 ${TIME_STEP_SECONDS}초 더를 보여 줍니다. 목표 시간을 못 채운 세트가 있었으면 목표 시간을 다시 추천합니다. 루틴에 목표 시간이 있으면 그것을 먼저 씁니다.`
-            : addedWeight
+            : usesAssist(exercise)
+              ? '보조 머신은 보조 무게가 낮을수록 어렵습니다. 지난번에 가장 적은 보조 무게로 한 본 세트에서 모두 목표 횟수를 채웠으면 증량 단위만큼 보조 무게를 줄여 줍니다. 루틴에 목표 횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.'
+              : addedWeight
               ? '맨몸으로 했으면 지난번 최고 횟수보다 1회 더를 추천합니다. 추가 무게를 달았으면 모든 본 세트에서 목표 횟수를 채웠을 때 증량 단위만큼 추가 무게를 올려 줍니다. 루틴에 목표 횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.'
               : '다음 무게 추천은 지난번에 모든 본 세트에서 목표 횟수를 채웠으면 증량 단위만큼 무게를 올려 줍니다. 루틴에 목표 횟수가 있으면 그것을 먼저 쓰고, 둘 다 없으면 지난 기록의 횟수를 기준으로 합니다.'}
         </p>

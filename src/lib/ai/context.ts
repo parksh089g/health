@@ -20,6 +20,7 @@ import {
   isTimed,
   setTextOptions,
   usesAddedWeight,
+  usesAssist,
   type SetTextOptions,
 } from '../measure'
 import { formatRecommendation, getRecommendation } from '../recommend'
@@ -67,7 +68,8 @@ function setText(s: SetLike, opts: SetTextOptions = {}): string {
   const weighted = (s.weightKg ?? 0) > 0
   const reps = s.reps === null ? '?' : String(s.reps)
   const amount = seconds !== null ? formatSeconds(seconds) : weighted ? reps : `${reps}회`
-  return `${weighted ? `${formatWeight(s.weightKg as number, opts.addedWeight)}×` : ''}${amount}${rpe}`
+  const assist = weighted && opts.assist ? '보조 ' : ''
+  return `${weighted ? `${assist}${formatWeight(s.weightKg as number, opts.addedWeight)}×` : ''}${amount}${rpe}`
 }
 
 /** 완료한 세트를 "웜업 40kg×10 / 60kg×8, 60kg×8, 62.5kg×6"처럼 */
@@ -87,9 +89,9 @@ export function describePlannedSets(sets: SetLike[], opts: SetTextOptions = {}):
   return sets.map((s) => `${s.isWarmup ? '웜업 ' : ''}${setText(s, opts)}${s.isDone ? '(완료)' : ''}`).join(', ')
 }
 
-/** 추정 1RM. 맨몸 종목은 체중을 몰라 추가 무게만으로는 뜻이 없으므로 적지 않는다. */
+/** 추정 1RM. 맨몸 종목과 보조 머신은 체중을 몰라 추가 무게나 보조 무게만으로는 뜻이 없으므로 적지 않는다. */
 function e1rmText(sets: SetLike[], opts: SetTextOptions = {}): string {
-  if (opts.addedWeight) return ''
+  if (opts.addedWeight || opts.assist) return ''
   const sum = summarizeSession(sets)
   return sum.bestE1rm === null ? '' : ` · 추정 1RM ${formatKg(Math.round(sum.bestE1rm * 10) / 10)}kg`
 }
@@ -107,6 +109,8 @@ function memoLines(workouts: Workout[], limit: number): string[] {
 
 /** 맨몸 종목에서 추가 무게를 쓴다고 알릴 때 머리말에 붙이는 글 */
 export const ADDED_WEIGHT_NOTE = '추가 무게 사용'
+/** 보조 머신의 무게가 무엇인지. 숫자만 보면 무거울수록 어려운 것으로 읽기 쉬워 꼭 적는다. */
+export const ASSIST_NOTE = '적은 무게는 몸무게를 덜어 주는 보조 무게라 낮을수록 어려움'
 
 /**
  * 종목 머리말. 시간으로 재는 종목(플랭크 등)은 횟수 추천을 받지 않으므로 그렇게 적고, 목표 시간이 있으면 붙인다.
@@ -122,6 +126,7 @@ function exerciseHeader(key: string, exercise: Exercise | undefined, target: num
     parts.push('시간으로 재는 종목')
     if (target !== null) parts.push(`목표 ${formatTarget(exercise, target)}`)
   } else {
+    if (usesAssist(exercise)) parts.push(ASSIST_NOTE)
     if (addedWeight) parts.push(ADDED_WEIGHT_NOTE)
     parts.push(target === null ? '목표 횟수 정하지 않음' : `목표 ${target}회`)
     if (!usesAddedWeight(exercise) || addedWeight) parts.push(`증량 단위 ${formatKg(incrementFor(exercise))}kg`)
@@ -258,8 +263,10 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
   for (const [i, we] of wes.entries()) {
     const exercise = exercises[i]
     // 시간으로 재는 종목과 유산소 종목은 기록만 보여 주고 추천은 받지 않는다(무게×횟수 추천을 세트에 채울 수 없다).
+    // 보조 머신도 무게가 거꾸로라(낮을수록 어렵다) AI 추천은 받지 않고 규칙 추천만 쓴다.
     const timed = isTimed(exercise)
-    const key = timed ? NO_ADVICE_KEY : `E${items.length + 1}`
+    const noAdvice = timed || usesAssist(exercise)
+    const key = noAdvice ? NO_ADVICE_KEY : `E${items.length + 1}`
     const sets = await db.sets.where('workoutExerciseId').equals(we.id).sortBy('order')
     const target = we.targetReps ?? exercise?.targetReps ?? null
     const history = (await getExerciseSessions(we.exerciseId, { excludeWorkoutId: workoutId, before: workout.startedAt }))
@@ -282,7 +289,7 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
     } else {
       lines.push('  지난 기록(오래된 것부터):', ...history.map((s) => `  ${sessionLine(s, textOpts)}`))
     }
-    if (timed) continue
+    if (noAdvice) continue
 
     items.push({
       key,
@@ -306,7 +313,7 @@ export async function buildReviewContext(now: number = Date.now()): Promise<stri
   const data = await loadStatsData()
   if (data.workouts.length === 0) return null
   const from = now - REVIEW_WEEKS * 7 * DAY
-  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: REVIEW_WEEKS, now })
+  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: REVIEW_WEEKS, now, exercises: data.exercises })
   const recentParts = bodyPartSets(data.sessions, data.exercises, { from: now - 28 * DAY, to: now + 1 })
   const prevParts = bodyPartSets(data.sessions, data.exercises, { from: now - 56 * DAY, to: now - 28 * DAY })
   const routines = await db.routines.toArray()
@@ -471,6 +478,7 @@ export async function buildRoutineContext(request: string, now: number = Date.no
     const recent = (data.sessionsByExercise.get(ex.id) ?? []).filter((s) => s.workout.startedAt >= from)
     const parts = [`${key} ${ex.name} (${bodyPartLabel(ex.bodyPart)}, ${equipmentLabel(ex.equipment)})`]
     if (timed) parts.push(isCardio(ex) ? '유산소 종목' : '시간으로 재는 종목')
+    if (usesAssist(ex)) parts.push(ASSIST_NOTE)
     const lastSets = workingSets(recent.at(-1)?.sets ?? [])
     if (recent.length > 0) {
       const textOpts = setTextOptions(ex)

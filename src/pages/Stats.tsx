@@ -70,7 +70,7 @@ export default function Stats() {
 }
 
 function StatsBody({ data, now }: { data: StatsData; now: number }) {
-  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: WEEKS, now })
+  const weeks = weeklyTotals(data.workouts, data.sessions, { weeks: WEEKS, now, exercises: data.exercises })
   const thisMonth = monthOf(now)
 
   return (

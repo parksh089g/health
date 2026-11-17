@@ -1,7 +1,7 @@
 import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { startOfWeek, toDateKey } from './format'
 import { newId } from './id'
-import { isCardio, isSetEntered, isTimed, setSeconds } from './measure'
+import { isCardio, isSetEntered, isTimed, setSeconds, usesAssist } from './measure'
 import { cleanSupersetIds, cleanWorkoutSupersets, moveWithSupersets, writeSupersetIds } from './supersets'
 
 /** 지난 기록이 없는 종목을 추가할 때 만드는 빈 세트 수 */
@@ -49,6 +49,19 @@ export function setVolume(s: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | '
 
 export function totalVolume(sets: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>[]): number {
   return sets.reduce((sum, s) => sum + setVolume(s), 0)
+}
+
+/** 한 종목의 볼륨. 보조 머신의 무게는 든 무게가 아니라 덜어 준 무게라 볼륨에 넣지 않는다. */
+export function exerciseVolume(
+  sets: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>[],
+  exercise: Pick<Exercise, 'equipment'> | null | undefined,
+): number {
+  return usesAssist(exercise) ? 0 : totalVolume(sets)
+}
+
+/** 운동 한 번의 볼륨(종목마다 exerciseVolume을 더한다). */
+export function itemsVolume(items: readonly Pick<WorkoutItem, 'exercise' | 'sets'>[]): number {
+  return items.reduce((sum, item) => sum + exerciseVolume(item.sets, item.exercise), 0)
 }
 
 /** 진행 중인 운동(가장 최근 것). 없으면 undefined. */
@@ -430,6 +443,7 @@ export async function loadWorkoutSummaries(): Promise<WorkoutSummary[]> {
   const sets = await db.sets.toArray()
   const exercises = await db.exercises.toArray()
   const nameOf = new Map(exercises.map((e) => [e.id, e.name]))
+  const byId = new Map(exercises.map((e) => [e.id, e]))
 
   const setsByWe = new Map<string, SetEntry[]>()
   for (const s of sets) {
@@ -446,12 +460,11 @@ export async function loadWorkoutSummaries(): Promise<WorkoutSummary[]> {
 
   return workouts.map((workout) => {
     const own = (wesByWorkout.get(workout.id) ?? []).sort((a, b) => a.order - b.order)
-    const ownSets = own.flatMap((we) => setsByWe.get(we.id) ?? [])
     return {
       workout,
       exerciseNames: own.map((we) => nameOf.get(we.exerciseId) ?? '지워진 종목'),
-      setCount: ownSets.filter((s) => s.isDone).length,
-      volume: totalVolume(ownSets),
+      setCount: own.reduce((n, we) => n + (setsByWe.get(we.id) ?? []).filter((s) => s.isDone).length, 0),
+      volume: own.reduce((sum, we) => sum + exerciseVolume(setsByWe.get(we.id) ?? [], byId.get(we.exerciseId)), 0),
     }
   })
 }
