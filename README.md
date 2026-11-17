@@ -166,7 +166,7 @@ npm run preview    # 빌드 결과를 로컬에서 확인
 npm run e2e        # 빌드한 앱을 휴대폰 크기 브라우저로 끝까지 눌러 보는 점검
 ```
 
-`npm run e2e`는 Playwright로 실제 흐름(운동 기록, 루틴, 통계, 백업, AI 등)을 눌러 봅니다. 처음 한 번 `npx playwright install chromium`으로 브라우저를 받아야 합니다. AI 요청은 흉내 낸 응답으로 대신하므로 실제 API를 부르지 않고 요금도 들지 않습니다. CI에서도 PR마다 돌립니다.
+`npm run e2e`는 Playwright로 실제 흐름(운동 기록, 루틴, 통계, 백업, AI, 유산소, 슈퍼세트, 보조 머신 등)을 눌러 봅니다. 처음 한 번 `npx playwright install chromium`으로 브라우저를 받아야 합니다. AI 요청은 흉내 낸 응답으로 대신하므로 실제 API를 부르지 않고 요금도 들지 않습니다. CI에서도 PR마다 돌립니다.
 
 같은 와이파이의 휴대폰에서 개발 서버를 보려면 `npm run dev -- --host`로 띄운 뒤 터미널에 나오는 Network 주소를 엽니다. 오프라인 동작과 홈 화면 설치는 HTTPS로 배포한 주소에서만 확인할 수 있습니다.
 
