@@ -3,7 +3,8 @@ import Dexie, { type Table } from 'dexie'
 /** 'cardio'는 유산소(러닝머신, 스텝밀 등). (5단계) */
 export type BodyPart = 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core' | 'cardio' | 'other'
 
-export type Equipment = 'barbell' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight' | 'other'
+/** assisted: 어시스트 풀업처럼 몸무게를 덜어 주는 보조 머신. 적는 무게는 보조 무게라 낮을수록 어렵다. */
+export type Equipment = 'barbell' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight' | 'assisted' | 'other'
 
 /** 종목 */
 export interface Exercise {

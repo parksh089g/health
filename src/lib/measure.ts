@@ -72,6 +72,19 @@ export function cardioMetricOf(exercise: CardioSource): CardioMetric | null {
   return m === 'distance' || m === 'floors' ? m : null
 }
 
+/**
+ * 세트의 무게가 "보조 무게"인 종목(어시스트 풀업 같은 보조 머신)인지.
+ * 보조 무게는 몸무게를 덜어 주는 무게라 낮을수록 어렵다. 그래서 볼륨에 넣지 않고, 추천은 보조 무게를 줄이는 쪽으로 한다.
+ */
+export function usesAssist(exercise: EquipmentSource): boolean {
+  return exercise?.equipment === 'assisted'
+}
+
+/** 세트의 무게 칸 이름. "무게", 맨몸 종목은 "추가 무게", 보조 머신은 "보조 무게" */
+export function weightName(exercise: EquipmentSource): string {
+  return usesAddedWeight(exercise) ? '추가 무게' : usesAssist(exercise) ? '보조 무게' : '무게'
+}
+
 /** 세트의 무게가 "추가 무게"인 종목(맨몸 종목)인지 */
 export function usesAddedWeight(exercise: EquipmentSource): boolean {
   return exercise?.equipment === 'bodyweight'
@@ -163,13 +176,15 @@ export interface SetTextOptions {
   addedWeight?: boolean
   /** 유산소 종목인지. 시간을 "30분"처럼 쓰고 거리나 층수를 붙인다. */
   cardio?: boolean
+  /** 보조 머신이라 무게가 보조 무게인지. 무게 앞에 "보조"를 붙인다. */
+  assist?: boolean
 }
 
 /** 이 종목의 세트를 글로 쓸 때의 옵션 */
 export function setTextOptions(
   exercise: (Pick<Exercise, 'measure'> & Partial<Pick<Exercise, 'equipment'>>) | null | undefined,
 ): SetTextOptions {
-  return { addedWeight: usesAddedWeight(exercise), cardio: isCardio(exercise) }
+  return { addedWeight: usesAddedWeight(exercise), cardio: isCardio(exercise), assist: usesAssist(exercise) }
 }
 
 /** 목표 값의 이름. "목표 횟수" 또는 "목표 시간" */
@@ -188,7 +203,7 @@ export function formatWeight(weightKg: number, added = false): string {
 }
 
 /**
- * 세트 하나를 짧게. "60×8", 무게가 없으면 "8회", 추가 무게면 "+10×8".
+ * 세트 하나를 짧게. "60×8", 무게가 없으면 "8회", 추가 무게면 "+10×8", 보조 무게면 "보조 20×8".
  * 시간 세트는 "60초", 무게를 달았으면 "10kg×60초". 유산소 세트(opts.cardio)는 "30분 120층", "25분 5.2km".
  */
 export function formatSetShort(
@@ -197,7 +212,7 @@ export function formatSetShort(
 ): string {
   if (opts.cardio) return cardioSetParts(s).join(' ') || '0분'
   const weight = s.weightKg ?? 0
-  const sign = opts.addedWeight ? '+' : ''
+  const sign = opts.addedWeight ? '+' : opts.assist ? '보조 ' : ''
   const seconds = setSeconds(s)
   if (seconds > 0) return weight > 0 ? `${sign}${formatKg(weight)}kg×${formatSeconds(seconds)}` : formatSeconds(seconds)
   const reps = s.reps ?? 0

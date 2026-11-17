@@ -45,10 +45,15 @@ export function roundToStep(kg: number): number {
   return roundKg(Math.round(value / step) * step)
 }
 
-/** 웜업 세트를 만들 수 있는 종목인지: 무게를 들고 횟수로 재는 종목(맨몸, 시간, 유산소 종목은 아니다). */
+/** 웜업 세트를 만들 수 있는 종목인지: 무게를 들고 횟수로 재는 종목(맨몸, 보조 머신, 시간, 유산소 종목은 아니다). */
 export function canWarmup(exercise: Pick<Exercise, 'equipment' | 'measure'> | null | undefined): boolean {
   if (!exercise) return false
-  return exercise.equipment !== 'bodyweight' && exercise.measure !== 'time' && exercise.measure !== 'cardio'
+  return (
+    exercise.equipment !== 'bodyweight' &&
+    exercise.equipment !== 'assisted' &&
+    exercise.measure !== 'time' &&
+    exercise.measure !== 'cardio'
+  )
 }
 
 /** 웜업의 기준이 되는 무게: 무게를 적은 첫 본 세트의 무게. 없으면 null */

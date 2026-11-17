@@ -296,6 +296,34 @@ describe('맨몸 종목', () => {
   })
 })
 
+describe('보조 머신: 보조 무게가 낮을수록 어렵다', () => {
+  const assist = { bodyPart: 'back', equipment: 'assisted', targetReps: 8 } as const
+
+  it('가장 적은 보조 무게로 목표를 채웠으면 보조를 증량 단위만큼 줄인다', () => {
+    const rec = recommendNext(assist, [session(1, [[30, 10], [20, 8], [20, 8]])])
+    expect(rec).toMatchObject({ kind: 'increase', weightKg: 17.5, reps: 8, fromWeightKg: 20 })
+    expect(rec?.reason).toContain('보조를 줄여')
+  })
+
+  it('못 채운 세트가 있으면 같은 보조 무게로 다시', () => {
+    expect(recommendNext(assist, [session(1, [[20, 8], [20, 6]])])).toMatchObject({
+      kind: 'keep',
+      weightKg: 20,
+      fromWeightKg: 20,
+    })
+  })
+
+  it('보조가 증량 단위보다 작으면 보조 없이(0kg)를 추천한다', () => {
+    const rec = recommendNext({ ...assist, incrementKg: 5 }, [session(1, sets(2.5, 8))])
+    expect(rec).toMatchObject({ kind: 'increase', weightKg: 0 })
+    expect(rec?.reason).toContain('보조 없이')
+  })
+
+  it('보조 없이 했으면 맨몸 종목처럼 1회 더', () => {
+    expect(recommendNext(assist, [session(1, sets(null, 6))])).toMatchObject({ kind: 'addReps', weightKg: null, reps: 7 })
+  })
+})
+
 describe('추천 적용', () => {
   const BENCH = 'ex-bench'
   const DIPS = 'ex-dips'

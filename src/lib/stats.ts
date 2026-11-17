@@ -21,9 +21,10 @@ import {
   isTimed,
   setSeconds,
   usesAddedWeight,
+  usesAssist,
   type SetTextOptions,
 } from './measure'
-import { totalVolume } from './workouts'
+import { exerciseVolume } from './workouts'
 
 /**
  * 성장 통계. (2단계)
@@ -90,7 +91,7 @@ export interface WeekTotal {
 export function weeklyTotals(
   workouts: WorkoutLike[],
   sessions: ExerciseSession[],
-  opts: { weeks: number; now: number },
+  opts: { weeks: number; now: number; exercises?: Map<string, Pick<Exercise, 'equipment'>> },
 ): WeekTotal[] {
   const thisWeek = startOfWeek(opts.now).getTime()
   const count = Math.max(0, Math.floor(opts.weeks))
@@ -114,7 +115,8 @@ export function weeklyTotals(
     if (s.workout.endedAt === null) continue
     const b = bucket(s.workout.startedAt)
     if (!b) continue
-    b.volume += totalVolume(s.sets)
+    // 보조 머신의 무게는 덜어 준 무게라 볼륨에 넣지 않는다.
+    b.volume += exerciseVolume(s.sets, opts.exercises?.get(s.we.exerciseId))
     b.sets += workingSets(s.sets).length
   }
   return result
@@ -326,12 +328,13 @@ export interface SessionPoint {
 }
 
 /** 종목의 기록마다 요약 값을 오래된 것부터 돌려준다. */
-export function exerciseSeries(sessions: ExerciseSession[]): SessionPoint[] {
+export function exerciseSeries(sessions: ExerciseSession[], exercise?: RecordExercise): SessionPoint[] {
+  const assist = usesAssist(exercise)
   return [...sessions]
     .sort((a, b) => a.workout.startedAt - b.workout.startedAt)
     .map((s) => {
       const { topWeight, bestE1rm, volume, maxReps, maxDuration, totalDuration, totalDistance, totalFloors } =
-        summarizeSession(s.sets)
+        summarizeSession(s.sets, assist)
       return {
         workoutId: s.workout.id,
         at: s.workout.startedAt,
@@ -398,6 +401,8 @@ function metricsFor(exercise: RecordExercise): ProgressMetric[] {
   }
   if (isTimed(exercise)) return ['maxDuration', 'totalDuration']
   if (usesAddedWeight(exercise)) return ['maxReps', 'topWeight']
+  // 보조 머신은 보조 무게가 낮을수록 어려워 무게 그래프가 거꾸로 읽히므로 횟수만 본다.
+  if (usesAssist(exercise)) return ['maxReps']
   return exercise ? ['bestE1rm', 'topWeight', 'volume', 'maxReps'] : METRIC_ORDER
 }
 

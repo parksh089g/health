@@ -1,7 +1,7 @@
 import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { incrementFor } from './exercises'
 import { getExerciseSessions, isWeighted, workingSets } from './history'
-import { formatSeconds, formatWeight, isCardio, isTimed, setSeconds, usesAddedWeight } from './measure'
+import { formatSeconds, formatWeight, isCardio, isTimed, setSeconds, usesAddedWeight, usesAssist } from './measure'
 
 /**
  * 다음 무게 추천(규칙 기반). (2단계)
@@ -10,6 +10,8 @@ import { formatSeconds, formatWeight, isCardio, isTimed, setSeconds, usesAddedWe
  * - 무게를 단 종목: 가장 무거운 본 세트의 무게(W)로 한 세트들이 모두 목표 횟수(T)를 채웠으면 W + 증량 단위,
  *   못 채웠으면 W를 그대로. 같은 W에서 3번 연속 못 채웠으면 W의 약 90%로 낮춘다(증량 단위의 배수로 내림).
  * - 맨몸 종목: 지난번 가장 많이 한 횟수 + 1. 지난번에 추가 무게를 달았으면 그 추가 무게를 위의 규칙대로 올린다.
+ * - 보조 머신(어시스트 풀업 등): 가장 적은 보조 무게로 한 세트들이 모두 목표 횟수를 채웠으면 보조 무게 - 증량 단위,
+ *   못 채웠으면 같은 보조 무게. 보조 없이 했으면 맨몸 종목처럼 1회 더.
  * - 시간 종목: 지난번 가장 오래 버틴 시간 + 5초. 목표 시간을 못 채운 세트가 있었으면 목표 시간.
  * - 유산소 종목: 추천하지 않는다(얼마나 할지는 그날 정하는 것이라 규칙으로 올리지 않는다).
  *
@@ -118,6 +120,62 @@ function recommendTime(
   }
 }
 
+/**
+ * 보조 머신의 추천. 보조 무게가 낮을수록 어려우므로, 가장 적은 보조 무게로 한 세트들이 모두 목표 횟수를 채웠으면
+ * 보조 무게를 증량 단위만큼 줄인다(0까지). 못 채웠으면 같은 보조 무게로 다시. 보조 없이 했으면 1회 더.
+ */
+function recommendAssist(
+  exercise: Pick<Exercise, 'bodyPart' | 'incrementKg' | 'targetReps'>,
+  sessions: readonly RecommendSession[],
+  todayTargetReps?: number | null,
+): Recommendation | null {
+  const last = sessions
+    .filter((s) => countedSets(s.sets).length > 0)
+    .sort((a, b) => a.workout.startedAt - b.workout.startedAt)
+    .at(-1)
+  if (!last) return null
+  const basedOnWorkoutId = last.workout.id
+  const counted = countedSets(last.sets)
+  const assisted = counted.filter(isWeighted)
+  if (assisted.length === 0) {
+    const best = Math.max(...counted.map((s) => s.reps as number))
+    return {
+      kind: 'addReps',
+      weightKg: null,
+      reps: best + 1,
+      fromWeightKg: null,
+      reason: `보조 없이 한 지난번 최고 ${best}회보다 1회 더 해 봐요`,
+      basedOnWorkoutId,
+    }
+  }
+  const weight = Math.min(...assisted.map((s) => s.weightKg as number))
+  const reps = assisted.filter((s) => Math.abs((s.weightKg as number) - weight) < EPSILON).map((s) => s.reps as number)
+  const target =
+    validReps(last.we.targetReps) ?? validReps(todayTargetReps) ?? validReps(exercise.targetReps) ?? reps[0]
+  if (reps.every((r) => r >= target)) {
+    const next = roundKg(Math.max(0, weight - incrementFor(exercise)))
+    return {
+      kind: 'increase',
+      weightKg: next,
+      reps: target,
+      fromWeightKg: weight,
+      reason:
+        next > 0
+          ? `보조 ${formatWeight(weight)}로 ${target}회를 채웠어요. 보조를 줄여 봐요`
+          : `보조 ${formatWeight(weight)}로 ${target}회를 채웠어요. 보조 없이 해 봐요`,
+      basedOnWorkoutId,
+    }
+  }
+  return {
+    kind: 'keep',
+    weightKg: weight,
+    reps: target,
+    fromWeightKg: weight,
+    reason: `${target}회를 못 채운 세트가 있어서 같은 보조 무게로 다시 해요`,
+    basedOnWorkoutId,
+  }
+}
+
 /** 가장 무거운 본 세트의 무게와, 그 무게로 한 세트들의 횟수(순서대로). 무게를 단 세트가 없으면 null */
 function topSets(sets: SetLike[]): { weight: number; reps: number[] } | null {
   const weighted = countedSets(sets).filter(isWeighted)
@@ -152,6 +210,7 @@ export function recommendNext(
 ): Recommendation | null {
   if (isCardio(exercise)) return null
   if (isTimed(exercise)) return recommendTime(exercise, sessions, todayTargetReps)
+  if (usesAssist(exercise)) return recommendAssist(exercise, sessions, todayTargetReps)
   const added = usesAddedWeight(exercise)
   const ordered = sessions
     .filter((s) => countedSets(s.sets).length > 0)

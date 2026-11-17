@@ -204,7 +204,7 @@ describe('유산소 세트의 값과 표기', () => {
 
   it('짧은 표기와 묶은 표기', async () => {
     const opts = setTextOptions(await db.exercises.get(STEPMILL))
-    expect(opts).toEqual({ addedWeight: false, cardio: true })
+    expect(opts).toEqual({ addedWeight: false, cardio: true, assist: false })
     const base = { weightKg: null, reps: null, isWarmup: false, isDone: true }
     expect(formatSetShort({ ...base, durationSec: 1800, floors: 120 }, opts)).toBe('30분 120층')
     expect(formatSetShort({ ...base, durationSec: 1500, distanceKm: 5.2 }, opts)).toBe('25분 5.2km')

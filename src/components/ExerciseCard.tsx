@@ -11,6 +11,7 @@ import {
   measureOf,
   setTextOptions,
   usesAddedWeight,
+  weightName,
 } from '../lib/measure'
 import type { Recommendation } from '../lib/recommend'
 import { addSet, moveWorkoutExercise, removeWorkoutExercise, type WorkoutItem } from '../lib/workouts'
@@ -82,6 +83,7 @@ export function ExerciseCard({
   const cardio = measure === 'cardio'
   const cardioMetric = cardioMetricOf(exercise)
   const addedWeight = usesAddedWeight(exercise)
+  const weightLabel = weightName(exercise)
   const textOptions = setTextOptions(exercise)
   const columns = setRowColumns(mode)
 
@@ -180,7 +182,7 @@ export function ExerciseCard({
             </>
           ) : (
             <>
-              <span>{addedWeight ? '추가 무게' : '무게'}</span>
+              <span>{weightLabel}</span>
               <span>{timed ? '시간' : '횟수'}</span>
             </>
           )}
@@ -196,6 +198,7 @@ export function ExerciseCard({
             measure={measure}
             cardioMetric={cardioMetric}
             addedWeight={addedWeight}
+            weightLabel={weightLabel}
             onDone={onSetDone}
             recordLabels={records.filter((r) => r.setId === set.id).map((r) => recordLabel(r.kind, exercise))}
           />
