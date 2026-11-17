@@ -106,7 +106,7 @@ export default function WorkoutPage() {
           <button
             type="button"
             onClick={() => navigate(`/workout/${id}/done`, { replace: true })}
-            className="mr-1 h-10 shrink-0 rounded-xl bg-accent px-4 text-[15px] font-bold text-on-accent active:opacity-80"
+            className="mr-1 h-11 shrink-0 rounded-xl bg-accent px-4 text-[15px] font-bold text-on-accent active:opacity-80"
           >
             마치기
           </button>
