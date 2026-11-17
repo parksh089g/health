@@ -13,12 +13,15 @@ export class AiError extends Error {
   readonly kind: AiErrorKind
   /** 더 자세한 내용(영문일 수 있음). 작게 보여 준다. */
   readonly detail?: string
+  /** 답은 받았지만 쓸 수 없었을 때(잘림, 거절, 읽지 못함) 그 요청에 든 어림 요금. 사용량에 더한다. */
+  readonly costUsd?: number
 
-  constructor(message: string, kind: AiErrorKind, detail?: string) {
+  constructor(message: string, kind: AiErrorKind, detail?: string, costUsd?: number) {
     super(message)
     this.name = 'AiError'
     this.kind = kind
     this.detail = detail
+    this.costUsd = costUsd
   }
 }
 
@@ -180,23 +183,25 @@ export async function askClaudeJson(req: JsonRequest): Promise<JsonResponse> {
     clearTimeout(timer)
   }
 
+  // 답을 쓰지 못하는 경우에도 요금은 들었으니, 오류에 실어 보내 사용량에 더하게 한다.
+  const costUsd = costOfUsage(response.usage, response.model, req.model)
   if (response.stop_reason === 'refusal') {
-    throw new AiError('AI가 이 요청에는 답하지 않았습니다.', 'refusal', response.stop_details?.explanation ?? undefined)
+    throw new AiError('AI가 이 요청에는 답하지 않았습니다.', 'refusal', response.stop_details?.explanation ?? undefined, costUsd)
   }
   if (response.stop_reason === 'max_tokens') {
-    throw new AiError('AI 답이 너무 길어 잘렸습니다. 다시 시도해 주세요.', 'truncated')
+    throw new AiError('AI 답이 너무 길어 잘렸습니다. 다시 시도해 주세요.', 'truncated', undefined, costUsd)
   }
   let value: unknown
   try {
     value = JSON.parse(answerText(response.content))
   } catch {
-    throw new AiError('AI 답을 읽지 못했습니다. 다시 시도해 주세요.', 'invalid')
+    throw new AiError('AI 답을 읽지 못했습니다. 다시 시도해 주세요.', 'invalid', undefined, costUsd)
   }
 
   return {
     value,
     servedModel: response.model,
-    costUsd: costOfUsage(response.usage, response.model, req.model),
+    costUsd,
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   }

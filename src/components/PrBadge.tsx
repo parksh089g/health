@@ -1,14 +1,12 @@
-import { RECORD_LABELS, type RecordKind } from '../lib/history'
-
 interface PrBadgeProps {
-  /** 이 세트(또는 운동)로 세운 기록의 종류. 읽어 주는 이름에 쓴다. */
-  kinds?: RecordKind[]
+  /** 이 세트(또는 운동)로 세운 기록의 이름(recordLabel). 읽어 주는 이름에 쓴다. */
+  labels?: string[]
   className?: string
 }
 
 /** 개인 기록(PR)을 새로 세웠다는 작은 표시. */
-export function PrBadge({ kinds = [], className = '' }: PrBadgeProps) {
-  const label = kinds.length > 0 ? `새 기록: ${kinds.map((k) => RECORD_LABELS[k]).join(', ')}` : '새 기록'
+export function PrBadge({ labels = [], className = '' }: PrBadgeProps) {
+  const label = labels.length > 0 ? `새 기록: ${labels.join(', ')}` : '새 기록'
   return (
     <span
       role="img"

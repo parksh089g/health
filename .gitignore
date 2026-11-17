@@ -26,3 +26,6 @@ dist-ssr
 # Cloudflare Wrangler
 .wrangler
 .dev.vars*
+
+# e2e 점검이 남기는 화면 사진
+e2e/screenshots

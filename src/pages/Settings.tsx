@@ -1,35 +1,27 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
 import { AiSettings } from '../components/AiSettings'
+import { NumberField } from '../components/NumberField'
 import { Dialog } from '../components/Dialog'
 import { Toggle } from '../components/Toggle'
 import { db } from '../db'
-import { backupFileName, exportBackup, importBackup, parseBackup, type BackupFile } from '../lib/backup'
+import { importBackup, parseBackup, type BackupFile } from '../lib/backup'
 import { csvFileName, exportCsv } from '../lib/csv'
 import { ensureSeedExercises } from '../lib/exercises'
 import { formatFullDate } from '../lib/format'
+import { BACKUP_FAILED_TEXT, BACKUP_MIME, backupSavedText, downloadFile, saveBackupFile } from '../lib/saveFile'
 import {
   REST_OPTIONS,
+  REST_RANGE,
   SETTING_KEYS,
+  isRestSeconds,
   getLastBackupAt,
   getRecommendEnabled,
   getRestSeconds,
   setSetting,
 } from '../lib/settings'
 
-const BACKUP_MIME = 'application/json'
 const CSV_MIME = 'text/csv;charset=utf-8'
-
-function downloadFile(text: string, name: string, type: string = BACKUP_MIME): void {
-  const url = URL.createObjectURL(new Blob([text], { type }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 
 /** 이 기기에서 파일 공유(공유 시트)를 쓸 수 있는지 */
 function canShareFiles(): boolean {
@@ -88,20 +80,12 @@ export default function Settings() {
   const save = async (via: 'download' | 'share') => {
     setNotice(null)
     try {
-      const now = new Date()
-      const text = JSON.stringify(await exportBackup(now), null, 2)
-      const name = backupFileName(now)
-      if (via === 'share') {
-        await navigator.share({ files: [new File([text], name, { type: BACKUP_MIME })], title: '헬스 기록 백업' })
-      } else {
-        downloadFile(text, name)
-      }
-      await setSetting(SETTING_KEYS.lastBackupAt, now.getTime())
-      setNotice({ tone: 'ok', text: `백업 파일(${name})을 내보냈습니다. 폰 밖의 안전한 곳에도 보관해 주세요.` })
+      const name = await saveBackupFile(via)
+      setNotice({ tone: 'ok', text: backupSavedText(name) })
     } catch (e) {
       // 공유 창을 그냥 닫은 경우는 오류가 아니다.
       if (e instanceof DOMException && e.name === 'AbortError') return
-      setNotice({ tone: 'error', text: '백업 파일을 만들지 못했습니다. 다시 시도해 주세요.' })
+      setNotice({ tone: 'error', text: BACKUP_FAILED_TEXT })
     }
   }
 
@@ -163,6 +147,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
+        {restSeconds !== undefined && <RestDirectInput seconds={restSeconds} />}
       </section>
 
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="다음 무게 추천">
@@ -313,6 +298,55 @@ export default function Settings() {
           </>
         )}
       </Dialog>
+    </div>
+  )
+}
+
+/**
+ * 휴식 시간 기본값을 초로 직접 적는 칸. 범위 안의 값이면 바로 저장한다.
+ * 적는 동안에는 중간 값(120을 지우다 만 12)도 저장되므로, 비우거나 맞지 않는 값을 남기고 칸을 떠나면 적기 전 값으로 되돌린다.
+ */
+function RestDirectInput({ seconds }: { seconds: number }) {
+  const [value, setValue] = useState<number | null>(seconds)
+  // 위의 버튼이나 타이머에서 기본값이 바뀌면 칸의 값도 따라간다(적는 중에 저장된 값이면 그대로 둔다).
+  const [seen, setSeen] = useState(seconds)
+  const [sent, setSent] = useState<number | null>(null)
+  // 마지막으로 제대로 정한 값
+  const [committed, setCommitted] = useState(seconds)
+  if (seen !== seconds) {
+    setSeen(seconds)
+    if (seconds !== sent) {
+      setCommitted(seconds)
+      if (value !== seconds) setValue(seconds)
+    }
+  }
+  const invalid = value !== null && !isRestSeconds(value)
+
+  const store = (v: number) => {
+    setSent(v)
+    void setSetting(SETTING_KEYS.restSeconds, v)
+  }
+
+  const change = (v: number | null) => {
+    setValue(v)
+    if (isRestSeconds(v) && v !== seconds) store(v)
+  }
+
+  const leave = () => {
+    if (isRestSeconds(value)) {
+      setCommitted(value)
+      return
+    }
+    setValue(committed)
+    if (committed !== seconds) store(committed)
+  }
+
+  return (
+    <div className="mt-3 grid grid-cols-2 items-center gap-3" onBlur={leave}>
+      <NumberField value={value} onChange={change} unit="초" ariaLabel="휴식 시간 기본값 직접 입력" placeholder={String(seconds)} />
+      <p role={invalid ? 'alert' : undefined} className={`text-sm ${invalid ? 'text-danger' : 'text-muted'}`}>
+        {invalid ? `${REST_RANGE.min}~${REST_RANGE.max}초로 정해 주세요.` : '직접 입력'}
+      </p>
     </div>
   )
 }

@@ -123,7 +123,7 @@ describe('백업 파일 검사', () => {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: '2026-11-16T12:00:00.000Z',
-    data: { exercises: [], workouts: [], workoutExercises: [], sets: [], settings: [], routines: [] },
+    data: { exercises: [], workouts: [], workoutExercises: [], sets: [], settings: [], routines: [], bodyWeights: [] },
   })
 
   it('형식이 맞는 파일은 통과한다', () => {
@@ -187,5 +187,28 @@ describe('백업 파일 검사', () => {
     const file = valid()
     ;(file.data.workouts as unknown[]).push({ id: 'w1', date: '2026-11-16', startedAt: '어제', endedAt: null, memo: '' })
     expect(() => parseBackup(JSON.stringify(file))).toThrow('workouts 항목 형식이 올바르지 않습니다.')
+  })
+})
+
+describe('체중 기록 백업 (버전 3)', () => {
+  it('체중 기록과 세트의 새 필드가 백업과 복원을 거쳐도 그대로다', async () => {
+    await db.bodyWeights.put({ date: '2026-11-16', weightKg: 72.4, updatedAt: 1 })
+    await db.sets.put({ id: 's-rpe', workoutExerciseId: 'we', order: 0, weightKg: 60, reps: 8, isWarmup: false, isDone: true, rpe: 8.5 })
+    const file = parseBackup(JSON.stringify(await exportBackup()))
+    expect(file.version).toBe(3)
+    await db.bodyWeights.clear()
+    await db.sets.clear()
+    await importBackup(file)
+    expect(await db.bodyWeights.toArray()).toEqual([{ date: '2026-11-16', weightKg: 72.4, updatedAt: 1 }])
+    expect((await db.sets.get('s-rpe'))?.rpe).toBe(8.5)
+  })
+
+  it('버전 2 백업(체중 기록 없음)도 읽고, 복원하면 체중 기록은 비운다', async () => {
+    await db.bodyWeights.put({ date: '2026-11-16', weightKg: 72.4, updatedAt: 1 })
+    const v2 = { format: BACKUP_FORMAT, version: 2, exportedAt: '2026-11-01T00:00:00.000Z', data: { exercises: [], workouts: [], workoutExercises: [], sets: [], settings: [], routines: [] } }
+    const file = parseBackup(JSON.stringify(v2))
+    expect(file.data.bodyWeights).toEqual([])
+    await importBackup(file)
+    expect(await db.bodyWeights.count()).toBe(0)
   })
 })

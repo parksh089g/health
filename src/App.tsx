@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
-import { HashRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { HashRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { TabBar } from './components/TabBar'
+import BodyWeightLog from './pages/BodyWeightLog'
 import ExercisePicker from './pages/ExercisePicker'
 import History from './pages/History'
 import HistoryDetail from './pages/HistoryDetail'
@@ -28,11 +29,25 @@ function TabLayout() {
   )
 }
 
+/**
+ * 새 화면으로 들어갈 때는 맨 위에서 시작한다(긴 화면의 아래쪽에서 눌러도 다음 화면이 중간부터 보이지 않게).
+ * 뒤로 가기로 돌아온 화면은 건드리지 않는다.
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  const type = useNavigationType()
+  useEffect(() => {
+    if (type !== 'POP') window.scrollTo(0, 0)
+  }, [pathname, type])
+  return null
+}
+
 export default function App() {
   return (
     <RestTimerProvider>
       {/* 해시 주소(#/history)를 써서 어떤 정적 호스팅에 올려도 별도 설정 없이 동작한다. */}
       <HashRouter>
+        <ScrollToTop />
         <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
           <Suspense fallback={null}>
             <Routes>
@@ -50,6 +65,7 @@ export default function App() {
               <Route path="exercises/:id" element={<ExerciseDetail />} />
               <Route path="routines" element={<Routines />} />
               <Route path="routines/:id" element={<RoutineEditor />} />
+              <Route path="body-weight" element={<BodyWeightLog />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

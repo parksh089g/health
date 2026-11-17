@@ -1,14 +1,20 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AiExerciseSuggestion, SetEntry } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
-import { formatKg } from '../lib/format'
-import type { NewRecord, RecordKind } from '../lib/history'
-import { applyRecommendation, isRecommendationApplied, type Recommendation } from '../lib/recommend'
+import { recordLabel, type NewRecord } from '../lib/history'
+import { formatSetShort, formatTarget, isSetEntered, isTimed, usesAddedWeight } from '../lib/measure'
+import {
+  applyRecommendation,
+  formatRecommendation,
+  isRecommendationApplied,
+  type Recommendation,
+} from '../lib/recommend'
 import {
   addSet,
   completeSet,
-  removeLastSet,
+  moveWorkoutExercise,
+  removeSet,
   removeWorkoutExercise,
   updateSet,
   type WorkoutItem,
@@ -17,11 +23,15 @@ import { Dialog } from './Dialog'
 import { CheckIcon, ChevronRightIcon, PlusIcon, SparkleIcon } from './icons'
 import { NumberField } from './NumberField'
 import { PrBadge } from './PrBadge'
+import { SetSheet } from './SetSheet'
 
 interface ExerciseCardProps {
   item: WorkoutItem
   /** active: 운동 중(완료 체크가 있다). history: 지난 기록 수정(모든 세트가 완료 상태). */
   mode: 'active' | 'history'
+  /** 이 운동에서 몇 번째 종목인지(0부터)와 종목 수. 위아래로 옮기는 버튼을 켜고 끄는 데 쓴다. */
+  index: number
+  count: number
   /** 세트를 완료로 표시했을 때 */
   onSetDone?: () => void
   /** 다음 무게 추천. 운동 중에만 보여 준다. 지난 기록이 없거나 추천을 꺼 두었으면 null */
@@ -32,80 +42,129 @@ interface ExerciseCardProps {
   aiSuggestion?: AiExerciseSuggestion | null
 }
 
-/** "60×8" 또는 무게가 없으면 "8회" */
-function shortSet(s: Pick<SetEntry, 'weightKg' | 'reps'>): string {
-  const reps = s.reps ?? 0
-  return s.weightKg ? `${formatKg(s.weightKg)}×${reps}` : `${reps}회`
-}
-
 /** 웜업은 W, 본 세트는 1부터 센다. */
 function setLabels(sets: SetEntry[]): string[] {
   let n = 0
   return sets.map((s) => (s.isWarmup ? 'W' : String(++n)))
 }
 
-/** 목표 횟수로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null */
+/** 목표 횟수(시간 종목은 목표 시간)로 보여 줄 값. 이 운동의 목표(루틴) → 종목의 목표. 없으면 null */
 function knownTarget(item: WorkoutItem): number | null {
   const v = item.we.targetReps ?? item.exercise?.targetReps
   return typeof v === 'number' && v > 0 ? v : null
 }
 
-export function ExerciseCard({ item, mode, onSetDone, recommendation, records = [], aiSuggestion }: ExerciseCardProps) {
+export function ExerciseCard({
+  item,
+  mode,
+  index,
+  count,
+  onSetDone,
+  recommendation,
+  records = [],
+  aiSuggestion,
+}: ExerciseCardProps) {
   const [askRemove, setAskRemove] = useState(false)
+  const sectionRef = useRef<HTMLElement>(null)
+  const justMoved = useRef(false)
   const { we, exercise, sets, lastSets } = item
   const name = exercise?.name ?? '지워진 종목'
   const labels = setLabels(sets)
   const target = mode === 'active' ? knownTarget(item) : null
-  const columns = mode === 'active' ? 'grid-cols-[2.75rem_1fr_1fr_3rem]' : 'grid-cols-[2.75rem_1fr_1fr]'
+  const note = mode === 'active' ? (exercise?.note?.trim() ?? '') : ''
+  // 시간 종목은 횟수 대신 버틴 시간(초)을 적고, 맨몸 종목의 무게는 몸에 더한 무게다(비우면 맨몸).
+  const timed = isTimed(exercise)
+  const addedWeight = usesAddedWeight(exercise)
+  const columns = mode === 'active' ? 'grid-cols-[3rem_1fr_1fr_3rem]' : 'grid-cols-[3rem_1fr_1fr]'
+
+  // 옮긴 카드가 화면 밖으로 나가면 따라가서, 이어서 더 옮길 수 있게 한다.
+  useEffect(() => {
+    if (!justMoved.current) return
+    justMoved.current = false
+    sectionRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [index])
+
+  const move = (direction: -1 | 1) => {
+    justMoved.current = true
+    void moveWorkoutExercise(we.id, direction)
+  }
 
   return (
-    <section className="rounded-2xl border border-line bg-surface p-3" aria-label={name}>
-      <header className="flex items-start justify-between gap-2 px-1">
-        <div className="min-w-0">
-          <h3 className="text-lg font-bold text-ink">
+    <section ref={sectionRef} className="scroll-my-20 rounded-2xl border border-line bg-surface p-3" aria-label={name}>
+      <header className="px-1">
+        {/* 이름 줄에는 옮기기와 빼기 버튼이 함께 있어서, 긴 이름은 자르지 않고 두 줄까지 보여 준다. */}
+        <div className="-mb-1 -mt-1 flex min-h-11 items-center gap-1">
+          <h3 className="min-w-0 flex-1 pb-1 text-lg font-bold leading-snug text-ink">
             {exercise ? (
-              <Link
-                to={`/exercises/${exercise.id}`}
-                className="inline-flex max-w-full items-center gap-0.5 rounded-md active:opacity-60"
-              >
-                <span className="truncate">{name}</span>
-                <ChevronRightIcon className="size-4 shrink-0 text-muted" />
+              <Link to={`/exercises/${exercise.id}`} className="line-clamp-2 rounded-md active:opacity-60">
+                {name}
+                <ChevronRightIcon className="-mt-0.5 ml-0.5 inline size-4 text-muted" />
               </Link>
             ) : (
-              <span className="block truncate">{name}</span>
+              <span className="line-clamp-2">{name}</span>
             )}
           </h3>
-          {exercise && (
-            <p className="text-sm text-muted">
-              {bodyPartLabel(exercise.bodyPart)} · {equipmentLabel(exercise.equipment)}
-              {target !== null && <> · 목표 {target}회</>}
-            </p>
-          )}
-          {mode === 'active' && lastSets.length > 0 && (
-            <p className="mt-0.5 truncate text-sm text-muted">지난번 {lastSets.map(shortSet).join(' · ')}</p>
-          )}
+          <div className="-mr-2 flex shrink-0 items-center">
+            {count > 1 && (
+              <>
+                <MoveButton direction={-1} disabled={index === 0} onClick={() => move(-1)} />
+                <MoveButton direction={1} disabled={index === count - 1} onClick={() => move(1)} />
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setAskRemove(true)}
+              className="h-11 rounded-lg px-2.5 text-sm text-muted active:bg-surface-2"
+            >
+              빼기
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setAskRemove(true)}
-          className="-mr-1 shrink-0 rounded-lg px-3 py-2 text-sm text-muted active:bg-surface-2"
-        >
-          빼기
-        </button>
+        {exercise && (
+          <p className="text-sm text-muted">
+            {bodyPartLabel(exercise.bodyPart)} · {equipmentLabel(exercise.equipment)}
+            {target !== null && <> · 목표 {formatTarget(exercise, target)}</>}
+          </p>
+        )}
+        {mode === 'active' && lastSets.length > 0 && (
+          <p className="mt-0.5 truncate text-sm text-muted">
+            지난번 {lastSets.map((s) => formatSetShort(s, { addedWeight })).join(' · ')}
+          </p>
+        )}
+        {/* 종목 메모(시트 높이, 그립 등). 여기서는 보기만 하고 종목 상세에서 고친다. */}
+        {note !== '' && (
+          <p className="mt-1 line-clamp-2 break-words text-sm leading-snug text-ink">
+            <span className="mr-1.5 font-semibold text-muted">메모</span>
+            {note}
+          </p>
+        )}
       </header>
 
       {mode === 'active' &&
         (aiSuggestion ? (
-          <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={aiSuggestion} variant="ai" />
+          <RecommendationBar
+            workoutExerciseId={we.id}
+            sets={sets}
+            recommendation={aiSuggestion}
+            addedWeight={addedWeight}
+            variant="ai"
+          />
         ) : (
-          recommendation && <RecommendationBar workoutExerciseId={we.id} sets={sets} recommendation={recommendation} />
+          recommendation && (
+            <RecommendationBar
+              workoutExerciseId={we.id}
+              sets={sets}
+              recommendation={recommendation}
+              addedWeight={addedWeight}
+            />
+          )
         ))}
 
       <div className="mt-2 grid gap-2">
         <div className={`grid ${columns} gap-2 text-center text-xs text-muted`}>
           <span>세트</span>
-          <span>무게</span>
-          <span>횟수</span>
+          <span>{addedWeight ? '추가 무게' : '무게'}</span>
+          <span>{timed ? '시간' : '횟수'}</span>
           {mode === 'active' && <span>완료</span>}
         </div>
         {sets.map((set, i) => (
@@ -115,30 +174,23 @@ export function ExerciseCard({ item, mode, onSetDone, recommendation, records = 
             label={labels[i]}
             mode={mode}
             columns={columns}
+            timed={timed}
+            addedWeight={addedWeight}
             onDone={onSetDone}
-            recordKinds={records.filter((r) => r.setId === set.id).map((r) => r.kind)}
+            recordLabels={records.filter((r) => r.setId === set.id).map((r) => recordLabel(r.kind, exercise))}
           />
         ))}
       </div>
 
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={() => void addSet(we.id, { done: mode === 'history' })}
-          className="flex h-11 flex-1 items-center justify-center gap-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink active:opacity-70"
-        >
-          <PlusIcon className="size-4" />
-          세트 추가
-        </button>
-        <button
-          type="button"
-          disabled={sets.length === 0}
-          onClick={() => void removeLastSet(we.id)}
-          className="h-11 rounded-xl bg-surface-2 px-4 text-[15px] font-medium text-muted active:opacity-70 disabled:opacity-40"
-        >
-          세트 삭제
-        </button>
-      </div>
+      {/* 세트를 지우는 것은 세트 번호를 눌러 여는 창에 있다(어느 세트든 지울 수 있고, 잘못 누르기 어렵다). */}
+      <button
+        type="button"
+        onClick={() => void addSet(we.id, { done: mode === 'history' })}
+        className="mt-3 flex h-11 w-full items-center justify-center gap-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink active:opacity-70"
+      >
+        <PlusIcon className="size-4" />
+        세트 추가
+      </button>
 
       <Dialog
         open={askRemove}
@@ -155,10 +207,45 @@ export function ExerciseCard({ item, mode, onSetDone, recommendation, records = 
   )
 }
 
+interface MoveButtonProps {
+  /** -1: 위로, 1: 아래로 */
+  direction: -1 | 1
+  disabled: boolean
+  onClick: () => void
+}
+
+/** 종목을 한 칸 위나 아래로 옮기는 화살표 버튼. */
+function MoveButton({ direction, disabled, onClick }: MoveButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label={direction === -1 ? '위로 옮기기' : '아래로 옮기기'}
+      className="flex h-11 w-10 items-center justify-center rounded-lg text-muted active:bg-surface-2 disabled:opacity-30"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="size-5"
+      >
+        <path d={direction === -1 ? 'M12 19V5M6 11l6-6 6 6' : 'M12 5v14M6 13l6 6 6-6'} />
+      </svg>
+    </button>
+  )
+}
+
 interface RecommendationBarProps {
   workoutExerciseId: string
   sets: SetEntry[]
-  recommendation: Pick<Recommendation, 'weightKg' | 'reps' | 'reason' | 'fromWeightKg'>
+  recommendation: Pick<Recommendation, 'weightKg' | 'reps' | 'reason' | 'fromWeightKg' | 'durationSec'>
+  /** 맨몸 종목인지. 무게를 "+10kg"처럼 추가 무게로 보여 주고, 맨몸 세트와 추가 무게 세트를 나눠 채운다. */
+  addedWeight: boolean
   /** rule: 앱의 규칙 추천, ai: Claude의 추천 */
   variant?: 'rule' | 'ai'
 }
@@ -167,10 +254,16 @@ interface RecommendationBarProps {
  * 다음 무게 추천 한 줄. "적용"을 누르면 아직 완료하지 않은 본 세트에 추천 값을 채운다(자동으로 바꾸지 않는다).
  * 버튼 폭을 고정해서 "적용"과 "적용됨"이 바뀌어도 아래 세트 줄이 움직이지 않게 한다.
  */
-function RecommendationBar({ workoutExerciseId, sets, recommendation: rec, variant = 'rule' }: RecommendationBarProps) {
-  const applied = isRecommendationApplied(sets, rec)
+function RecommendationBar({
+  workoutExerciseId,
+  sets,
+  recommendation: rec,
+  addedWeight,
+  variant = 'rule',
+}: RecommendationBarProps) {
+  const applied = isRecommendationApplied(sets, rec, { addedWeight })
   const hasPending = sets.some((s) => !s.isDone && !s.isWarmup)
-  const value = rec.weightKg === null ? `${rec.reps}회` : `${formatKg(rec.weightKg)}kg × ${rec.reps}`
+  const value = formatRecommendation(rec, { addedWeight })
   const ai = variant === 'ai'
 
   return (
@@ -196,7 +289,7 @@ function RecommendationBar({ workoutExerciseId, sets, recommendation: rec, varia
       <button
         type="button"
         disabled={applied || !hasPending}
-        onClick={() => void applyRecommendation(workoutExerciseId, rec)}
+        onClick={() => void applyRecommendation(workoutExerciseId, rec, { addedWeight })}
         aria-label={applied ? '추천 적용됨' : `추천 ${value} 적용`}
         className={`flex h-11 w-[4.75rem] shrink-0 items-center justify-center gap-0.5 rounded-lg text-[15px] font-bold ${
           applied ? 'text-accent' : 'bg-accent text-on-accent active:opacity-80 disabled:opacity-40'
@@ -214,14 +307,36 @@ interface SetRowProps {
   label: string
   mode: 'active' | 'history'
   columns: string
+  /** 시간 종목이면 횟수 칸 대신 시간(초) 칸을 둔다. */
+  timed: boolean
+  /** 맨몸 종목이면 무게 칸이 추가 무게다. */
+  addedWeight: boolean
   onDone?: () => void
-  /** 이 세트로 새로 세운 기록의 종류. 비어 있으면 PR 표시가 없다. */
-  recordKinds: RecordKind[]
+  /** 이 세트로 새로 세운 기록의 이름. 비어 있으면 PR 표시가 없다. */
+  recordLabels: string[]
 }
 
-function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps) {
-  const repsRef = useRef<HTMLInputElement>(null)
+function SetRow({ set, label, mode, columns, timed, addedWeight, onDone, recordLabels }: SetRowProps) {
+  // 횟수 칸(시간 종목이면 시간 칸)
+  const amountRef = useRef<HTMLInputElement>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [askDelete, setAskDelete] = useState(false)
   const done = mode === 'active' && set.isDone
+  const rpe = set.rpe ?? null
+  const setName = set.isWarmup ? '웜업 세트' : `${label}세트`
+
+  const openSheet = () => {
+    // 키보드가 올라와 있으면 아래에서 뜨는 창을 가리므로 먼저 내린다.
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur()
+    setSheetOpen(true)
+  }
+
+  // 완료한 세트는 기록이라 한 번 더 묻고, 아직 하지 않은 세트는 바로 지운다.
+  const requestDelete = () => {
+    setSheetOpen(false)
+    if (set.isDone) setAskDelete(true)
+    else void removeSet(set.id)
+  }
 
   /** 완료로 바뀐 뒤: 휴식 타이머가 가려지지 않게 키보드를 내리고 바깥에 알린다. */
   const afterDone = () => {
@@ -234,57 +349,67 @@ function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps)
       void updateSet(set.id, { isDone: false })
       return
     }
-    if ((set.reps ?? 0) > 0) {
+    if (isSetEntered(set)) {
       void updateSet(set.id, { isDone: true })
       afterDone()
       return
     }
-    // 횟수가 없으면 완료로 표시하지 않고 횟수 칸으로 보낸다.
-    repsRef.current?.focus()
-    // 다만 방금 친 횟수가 아직 화면까지 돌아오지 않았을 수 있으니, 저장된 값으로 한 번 더 확인한다.
+    // 횟수(시간 종목이면 시간)가 없으면 완료로 표시하지 않고 그 칸으로 보낸다.
+    amountRef.current?.focus()
+    // 다만 방금 친 값이 아직 화면까지 돌아오지 않았을 수 있으니, 저장된 값으로 한 번 더 확인한다.
     void completeSet(set.id).then((ok) => {
       if (ok) afterDone()
     })
   }
 
-  const changeReps = (reps: number | null) => {
-    // 운동 중에 횟수를 지우면 완료 표시도 함께 푼다.
-    const clearsDone = mode === 'active' && set.isDone && (reps ?? 0) <= 0
-    void updateSet(set.id, clearsDone ? { reps, isDone: false } : { reps })
+  const changeAmount = (value: number | null) => {
+    const amount = timed ? { durationSec: value } : { reps: value }
+    // 운동 중에 횟수(시간)를 지우면 완료 표시도 함께 푼다.
+    const clearsDone = mode === 'active' && set.isDone && (value ?? 0) <= 0
+    void updateSet(set.id, clearsDone ? { ...amount, isDone: false } : amount)
   }
 
   return (
     <div className={`grid ${columns} items-center gap-2`}>
       <div className="relative">
+        {/* 번호를 누르면 이 세트의 설정 창(웜업, RPE, 삭제)이 열린다. 적어 둔 RPE는 번호 아래에 보인다. */}
         <button
           type="button"
-          onClick={() => void updateSet(set.id, { isWarmup: !set.isWarmup })}
-          aria-label={set.isWarmup ? '웜업 세트. 누르면 본 세트로 바꿉니다.' : `${label}세트. 누르면 웜업으로 바꿉니다.`}
-          className={`h-12 w-full rounded-xl text-base font-bold active:opacity-70 ${
+          onClick={openSheet}
+          aria-haspopup="dialog"
+          aria-label={`${setName} 설정${rpe === null ? '' : `, RPE ${rpe}`}`}
+          className={`flex h-12 w-full flex-col items-center justify-center rounded-xl active:opacity-70 ${
             set.isWarmup ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink'
           }`}
         >
-          {label}
+          <span className="text-base font-bold leading-5">{label}</span>
+          {rpe === null ? (
+            <span aria-hidden="true" className="text-[11px] font-bold leading-3 tracking-widest text-muted">
+              ···
+            </span>
+          ) : (
+            <span className="text-[11px] font-semibold leading-3 tabular-nums">RPE {rpe}</span>
+          )}
         </button>
         {/* 자리를 차지하지 않게 겹쳐 그려서, 표시가 생기거나 사라져도 세트 줄이 움직이지 않는다. */}
-        {recordKinds.length > 0 && (
-          <PrBadge kinds={recordKinds} className="pointer-events-none absolute -right-1.5 -top-1.5 shadow-sm" />
+        {recordLabels.length > 0 && (
+          <PrBadge labels={recordLabels} className="pointer-events-none absolute -right-1.5 -top-1.5 shadow-sm" />
         )}
       </div>
       <NumberField
         decimal
         unit="kg"
-        ariaLabel={`${label}세트 무게`}
+        ariaLabel={`${label}세트 ${addedWeight ? '추가 무게' : '무게'}`}
         value={set.weightKg}
         onChange={(weightKg) => void updateSet(set.id, { weightKg })}
         dimmed={done}
       />
       <NumberField
-        unit="회"
-        ariaLabel={`${label}세트 횟수`}
-        value={set.reps}
-        onChange={changeReps}
-        inputRef={repsRef}
+        unit={timed ? '초' : '회'}
+        ariaLabel={`${label}세트 ${timed ? '시간' : '횟수'}`}
+        value={timed ? (set.durationSec ?? null) : set.reps}
+        onChange={changeAmount}
+        inputRef={amountRef}
         dimmed={done}
       />
       {mode === 'active' && (
@@ -300,6 +425,26 @@ function SetRow({ set, label, mode, columns, onDone, recordKinds }: SetRowProps)
           <CheckIcon className="size-6" />
         </button>
       )}
+
+      <SetSheet
+        open={sheetOpen}
+        set={set}
+        label={label}
+        addedWeight={addedWeight}
+        onClose={() => setSheetOpen(false)}
+        onDelete={requestDelete}
+      />
+      <Dialog
+        open={askDelete}
+        title={`${setName}를 삭제할까요?`}
+        onClose={() => setAskDelete(false)}
+        actions={[
+          { label: '삭제', tone: 'danger', onClick: () => void removeSet(set.id) },
+          { label: '취소', onClick: () => setAskDelete(false) },
+        ]}
+      >
+        완료한 세트 기록이 지워집니다.
+      </Dialog>
     </div>
   )
 }

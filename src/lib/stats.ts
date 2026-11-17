@@ -1,12 +1,21 @@
 import { db, type BodyPart, type Exercise, type SetEntry, type Workout } from '../db'
 import { BODY_PARTS } from './exercises'
 import { formatDay, formatKg, startOfWeek } from './format'
-import { computeRecords, getAllExerciseSessions, summarizeSession, workingSets, type ExerciseSession } from './history'
+import {
+  computeRecords,
+  getAllExerciseSessions,
+  summarizeSession,
+  workingSets,
+  type ExerciseSession,
+  type RecordExercise,
+} from './history'
+import { formatSeconds, formatSetShort, formatWeight, isTimed, usesAddedWeight } from './measure'
 import { totalVolume } from './workouts'
 
 /**
  * 성장 통계. (2단계)
  * 통계는 저장하지 않고 세트 데이터에서 그때그때 계산한다. 끝난 운동의 완료한 본 세트(웜업 제외)만 센다.
+ * 시간 종목의 세트는 세트 수에는 들어가고 볼륨에는 들어가지 않는다. 맨몸 종목은 추가 무게×횟수만 볼륨에 들어간다.
  * 날짜는 모두 로컬 시간 기준이고, 한 주는 월요일에 시작한다.
  */
 
@@ -239,6 +248,10 @@ export interface SessionPoint {
   volume: number
   /** 맨몸 세트의 가장 많은 횟수. 없으면 null */
   maxReps: number | null
+  /** 시간 세트의 가장 오래 버틴 시간(초). 없으면 null */
+  maxDuration: number | null
+  /** 시간 세트의 시간 합(초). 시간 세트가 없으면 0 */
+  totalDuration: number
   /** 완료한 본 세트, 순서대로 */
   sets: SetEntry[]
 }
@@ -248,7 +261,7 @@ export function exerciseSeries(sessions: ExerciseSession[]): SessionPoint[] {
   return [...sessions]
     .sort((a, b) => a.workout.startedAt - b.workout.startedAt)
     .map((s) => {
-      const { topWeight, bestE1rm, volume, maxReps } = summarizeSession(s.sets)
+      const { topWeight, bestE1rm, volume, maxReps, maxDuration, totalDuration } = summarizeSession(s.sets)
       return {
         workoutId: s.workout.id,
         at: s.workout.startedAt,
@@ -256,51 +269,79 @@ export function exerciseSeries(sessions: ExerciseSession[]): SessionPoint[] {
         bestE1rm,
         volume,
         maxReps,
+        maxDuration,
+        totalDuration,
         sets: workingSets(s.sets),
       }
     })
 }
 
 /** 추이 그래프로 볼 수 있는 값 */
-export type ProgressMetric = 'bestE1rm' | 'topWeight' | 'volume' | 'maxReps'
+export type ProgressMetric = 'bestE1rm' | 'topWeight' | 'volume' | 'maxReps' | 'maxDuration' | 'totalDuration'
 
 export const METRIC_LABELS: Record<ProgressMetric, string> = {
   bestE1rm: '추정 1RM',
   topWeight: '최고 중량',
   volume: '볼륨',
   maxReps: '횟수',
+  maxDuration: '최장 시간',
+  totalDuration: '총 시간',
 }
 
-const METRIC_ORDER: ProgressMetric[] = ['bestE1rm', 'topWeight', 'volume', 'maxReps']
+const METRIC_ORDER: ProgressMetric[] = ['bestE1rm', 'topWeight', 'volume', 'maxReps', 'maxDuration', 'totalDuration']
 
-/** 그 기록에서의 값. 그 기록에 해당하는 세트가 없으면 null(볼륨 0도 null). */
+/**
+ * 이 종목에서 볼 값과 순서.
+ * 시간 종목은 최장 시간과 총 시간, 맨몸 종목은 횟수와 추가 무게를 본다
+ * (체중을 모르니 추가 무게만으로 낸 추정 1RM과 볼륨은 그리지 않는다). 종목을 모르면 세트에 있는 대로 모두 본다.
+ */
+function metricsFor(exercise: RecordExercise): ProgressMetric[] {
+  if (isTimed(exercise)) return ['maxDuration', 'totalDuration']
+  if (usesAddedWeight(exercise)) return ['maxReps', 'topWeight']
+  return exercise ? ['bestE1rm', 'topWeight', 'volume', 'maxReps'] : METRIC_ORDER
+}
+
+/** 그래프로 볼 값의 이름. 맨몸 종목의 최고 중량은 "추가 무게" */
+export function metricLabel(metric: ProgressMetric, exercise?: RecordExercise): string {
+  return metric === 'topWeight' && usesAddedWeight(exercise) ? '추가 무게' : METRIC_LABELS[metric]
+}
+
+/** 그 기록에서의 값. 그 기록에 해당하는 세트가 없으면 null(볼륨과 총 시간은 0도 null). */
 export function metricValue(p: SessionPoint, metric: ProgressMetric): number | null {
   if (metric === 'volume') return p.volume > 0 ? p.volume : null
+  if (metric === 'totalDuration') return p.totalDuration > 0 ? p.totalDuration : null
   return p[metric]
 }
 
-/** 기록이 하나라도 있는 값들. 무게를 단 종목은 추정 1RM, 최고 중량, 볼륨, 맨몸 종목은 횟수. */
-export function availableMetrics(points: SessionPoint[]): ProgressMetric[] {
-  return METRIC_ORDER.filter((m) => points.some((p) => metricValue(p, m) !== null))
+/**
+ * 기록이 하나라도 있는 값들. 무게를 단 종목은 추정 1RM, 최고 중량, 볼륨, 맨몸 종목은 횟수와 추가 무게,
+ * 시간 종목은 최장 시간과 총 시간.
+ */
+export function availableMetrics(points: SessionPoint[], exercise?: RecordExercise): ProgressMetric[] {
+  return metricsFor(exercise).filter((m) => points.some((p) => metricValue(p, m) !== null))
 }
 
-/** 값을 단위와 함께. "80.5kg"(추정 1RM은 소수 첫째 자리), "1,530kg", "12회" */
-export function formatMetric(metric: ProgressMetric, value: number): string {
+/** 값을 단위와 함께. "80.5kg"(추정 1RM은 소수 첫째 자리), "1,530kg", "12회", "90초", 맨몸 종목의 추가 무게는 "+10kg" */
+export function formatMetric(metric: ProgressMetric, value: number, exercise?: RecordExercise): string {
   if (metric === 'maxReps') return `${Math.round(value)}회`
+  if (metric === 'maxDuration' || metric === 'totalDuration') return formatSeconds(value)
   if (metric === 'volume') return `${Math.round(value).toLocaleString('ko-KR')}kg`
   if (metric === 'bestE1rm') return `${formatKg(Math.round(value * 10) / 10)}kg`
-  return `${formatKg(value)}kg`
+  return formatWeight(value, usesAddedWeight(exercise))
 }
 
 /**
  * 본 세트를 짧게. "60×8 · 62.5×6". 같은 세트가 이어지면 묶어서 "60×8×3"(60kg 8회 3세트).
- * 맨몸 세트는 "12회". 웜업과 완료하지 않은 세트는 뺀다.
+ * 맨몸 세트는 "12회", 시간 세트는 "60초", 맨몸 종목(opts.addedWeight)의 추가 무게는 "+10×8".
+ * 웜업과 완료하지 않은 세트는 뺀다.
  */
-export function formatSetsSummary(sets: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'>[]): string {
+export function formatSetsSummary(
+  sets: Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone' | 'durationSec'>[],
+  opts: { addedWeight?: boolean } = {},
+): string {
   const groups: { text: string; count: number }[] = []
   for (const s of workingSets(sets)) {
-    const reps = s.reps ?? 0
-    const text = (s.weightKg ?? 0) > 0 ? `${formatKg(s.weightKg as number)}×${reps}` : `${reps}회`
+    const text = formatSetShort(s, opts)
     const last = groups.at(-1)
     if (last && last.text === text) last.count++
     else groups.push({ text, count: 1 })
@@ -322,14 +363,22 @@ export interface ExerciseOverview {
   maxWeight: number | null
   /** 맨몸 세트의 가장 많은 횟수. 없으면 null */
   maxReps: number | null
+  /** 시간 세트의 가장 오래 버틴 시간(초). 없으면 null */
+  maxDuration: number | null
 }
 
-/** 기록이 있는 종목들. 최근에 한 것부터. */
-export function exerciseOverviews(sessionsByExercise: Map<string, ExerciseSession[]>): ExerciseOverview[] {
+/**
+ * 기록이 있는 종목들. 최근에 한 것부터.
+ * exercises를 주면 종목마다 그 종목에서 세는 기록만 담는다(맨몸 종목은 추정 1RM 없이 추가 무게와 횟수).
+ */
+export function exerciseOverviews(
+  sessionsByExercise: Map<string, ExerciseSession[]>,
+  exercises?: Map<string, Pick<Exercise, 'equipment' | 'measure'>>,
+): ExerciseOverview[] {
   const result: ExerciseOverview[] = []
   for (const [exerciseId, sessions] of sessionsByExercise) {
     if (sessions.length === 0) continue
-    const records = computeRecords(sessions)
+    const records = computeRecords(sessions, exercises?.get(exerciseId))
     result.push({
       exerciseId,
       lastAt: Math.max(...sessions.map((s) => s.workout.startedAt)),
@@ -337,6 +386,7 @@ export function exerciseOverviews(sessionsByExercise: Map<string, ExerciseSessio
       bestE1rm: records.bestE1rm?.value ?? null,
       maxWeight: records.maxWeight?.value ?? null,
       maxReps: records.maxReps?.value ?? null,
+      maxDuration: records.maxDuration?.value ?? null,
     })
   }
   return result.sort((a, b) => b.lastAt - a.lastAt)

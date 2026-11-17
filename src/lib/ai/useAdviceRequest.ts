@@ -14,11 +14,11 @@ export function useAdviceRequest(id: string, start: () => Promise<unknown>) {
   const [error, setError] = useState<AiError | null>(null)
 
   useEffect(() => {
+    // busy는 처음 그릴 때 진행 중인 요청이 있으면 true로 시작했다(useState 초기값).
+    // 그 요청이 그리는 사이에 끝났을 수도 있으니, 진행 중인 것이 없어도 한 번 풀어 준다.
     const running = pendingAdviceRequest(id)
-    if (!running) return
-    // busy는 처음 그릴 때 이미 true로 시작했다(useState 초기값).
     let alive = true
-    running
+    Promise.resolve(running)
       .catch((e: unknown) => alive && setError(toAiError(e)))
       .finally(() => alive && setBusy(false))
     return () => {

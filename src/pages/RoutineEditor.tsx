@@ -7,6 +7,7 @@ import { ChevronRightIcon, PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { db, type Exercise, type Routine, type RoutineItem } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
+import { isTimed, targetLabel } from '../lib/measure'
 import {
   MISSING_EXERCISE_NAME,
   ROUTINE_DEFAULT_SETS,
@@ -15,6 +16,7 @@ import {
   createRoutine,
   deleteRoutine,
   getRoutine,
+  syncRoutineDraft,
   updateRoutine,
 } from '../lib/routines'
 import { useGoBack } from '../lib/useGoBack'
@@ -58,6 +60,14 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
   const [saving, setSaving] = useState(false)
   const [ask, setAsk] = useState<'delete' | 'leave' | null>(null)
   const editorScroll = useRef(0)
+
+  // 종목 선택 안에서 종목을 지우거나 횟수/시간을 바꿨으면 고치던 내용도 거기에 맞춘다.
+  const [known, setKnown] = useState(exercises)
+  if (known !== exercises) {
+    setKnown(exercises)
+    const synced = syncRoutineDraft(items, known, exercises)
+    if (synced !== items) setItems(synced)
+  }
 
   const picking = searchParams.has(PICK_PARAM)
   const byId = new Map(exercises.map((e) => [e.id, e]))
@@ -275,6 +285,9 @@ interface RoutineItemRowProps {
 
 function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemove }: RoutineItemRowProps) {
   const name = exercise?.name ?? MISSING_EXERCISE_NAME
+  // 루틴 종목에는 목표 칸이 reps 하나뿐이라, 시간 종목이면 그 칸에 목표 시간(초)을 담는다(lib/measure.ts).
+  const timed = isTimed(exercise)
+  const target = targetLabel(exercise)
   const iconButton =
     'flex size-11 items-center justify-center rounded-xl text-ink active:bg-surface-2 disabled:text-muted disabled:opacity-40'
 
@@ -352,23 +365,30 @@ function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemo
           </div>
         </div>
         <div>
-          <p className="mb-1 px-1 text-xs text-muted">목표 횟수</p>
-          <RepsField value={item.reps} onChange={(reps) => onChange({ reps })} ariaLabel={`${name} 목표 횟수`} />
+          <p className="mb-1 px-1 text-xs text-muted">{target}</p>
+          <RepsField
+            value={item.reps}
+            onChange={(reps) => onChange({ reps })}
+            ariaLabel={`${name} ${target}`}
+            unit={timed ? '초' : '회'}
+          />
         </div>
       </div>
     </li>
   )
 }
 
-/** 목표 횟수 칸. 비워 두면 정하지 않은 것(null). */
+/** 목표 횟수(시간 종목은 목표 시간) 칸. 비워 두면 정하지 않은 것(null). */
 function RepsField({
   value,
   onChange,
   ariaLabel,
+  unit,
 }: {
   value: number | null
   onChange: (value: number | null) => void
   ariaLabel: string
+  unit: string
 }) {
   return (
     <label className="flex h-12 min-w-0 items-center rounded-xl border border-line bg-bg px-3 focus-within:border-accent">
@@ -391,7 +411,7 @@ function RepsField({
         }}
         className="w-full min-w-0 bg-transparent text-right text-lg font-semibold tabular-nums text-ink outline-none placeholder:text-base placeholder:font-normal placeholder:text-muted"
       />
-      {value !== null && <span className="ml-1 shrink-0 text-sm text-muted">회</span>}
+      {value !== null && <span className="ml-1 shrink-0 text-sm text-muted">{unit}</span>}
     </label>
   )
 }

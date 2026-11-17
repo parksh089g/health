@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useNavigate } from 'react-router-dom'
+import { BackupReminder } from '../components/BackupReminder'
 import { PlusIcon } from '../components/icons'
 import { RoutineStartDialog } from '../components/RoutineStartDialog'
 import { WorkoutSummaryRow } from '../components/WorkoutSummaryRow'
@@ -84,6 +85,9 @@ export default function Home() {
           onStart={(id) => void routineStart.start(id)}
         />
       )}
+
+      {/* 운동 시작 버튼과 루틴 아래에 둬서 버튼을 밀어내지 않는다. 운동 중에는 화면이 붐비니 보이지 않는다. */}
+      {data !== undefined && !active && <BackupReminder finishedWorkouts={summaries.length} now={now} />}
 
       <section className="mt-6 rounded-2xl border border-line bg-surface p-4" aria-label="이번 주 운동">
         <div className="flex items-baseline justify-between">
@@ -175,7 +179,7 @@ function RoutinesSection({
       </div>
       <ul className="mt-3 grid gap-2">
         {routines.slice(0, HOME_ROUTINE_COUNT).map(({ routine, names, missingCount }) => (
-          <li key={routine.id} className="flex items-center rounded-2xl border border-line bg-surface">
+          <li key={routine.id} className="flex min-w-0 items-center rounded-2xl border border-line bg-surface">
             <Link
               to={`/routines/${routine.id}`}
               className="min-w-0 flex-1 rounded-l-2xl py-3 pl-4 pr-2 active:bg-surface-2"

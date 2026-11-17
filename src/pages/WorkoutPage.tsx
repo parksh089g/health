@@ -10,6 +10,7 @@ import { getWorkoutAdvice } from '../lib/ai/advice'
 import { getAiModel } from '../lib/ai/models'
 import { formatClock } from '../lib/format'
 import { findNewRecords } from '../lib/history'
+import { isTimed } from '../lib/measure'
 import { getWorkoutRecommendations } from '../lib/recommend'
 import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
 import { useGoBack } from '../lib/useGoBack'
@@ -84,13 +85,13 @@ export default function WorkoutPage() {
         }
       />
 
-      <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-56' : 'pb-10'}`}>
+      <main className={`flex-1 px-3 pt-3 ${rest.active ? 'pb-64' : 'pb-10'}`}>
         {ai.enabled && (
           <AiWorkoutPanel
             workoutId={id}
             model={ai.model}
             hasKey={ai.hasKey}
-            hasItems={items.length > 0}
+            hasItems={items.some((item) => item.exercise !== undefined && !isTimed(item.exercise))}
             advice={advice}
           />
         )}
@@ -104,12 +105,14 @@ export default function WorkoutPage() {
         )}
 
         <div className="grid gap-3">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <ExerciseCard
               key={item.we.id}
               item={item}
               mode="active"
-              onSetDone={() => rest.start()}
+              index={index}
+              count={items.length}
+              onSetDone={() => rest.start(item.exercise?.restSeconds)}
               recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
               records={records}
               aiSuggestion={

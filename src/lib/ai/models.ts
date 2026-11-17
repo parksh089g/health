@@ -1,3 +1,4 @@
+import { db } from '../../db'
 import { getSetting, setSetting, SETTING_KEYS } from '../settings'
 
 /**
@@ -27,6 +28,12 @@ export async function getAiModel(): Promise<AiModelId> {
   return isAiModelId(v) ? v : DEFAULT_AI_MODEL
 }
 
+/** 거절됐을 때 이어 답할 수 있는, 고를 수 없는 모델의 요금(100만 토큰당 달러) */
+const FALLBACK_PRICES = [
+  { id: 'claude-opus-4-8', inputPerM: 5, outputPerM: 25 },
+  { id: 'claude-opus-5', inputPerM: 5, outputPerM: 25 },
+] as const
+
 /**
  * 토큰 수로 요금(달러)을 어림한다. 답한 모델을 모르면 요청한 모델의 요금을 쓴다.
  * 답한 모델 이름에 날짜 같은 꼬리가 붙어도 앞부분으로 찾는다.
@@ -36,9 +43,27 @@ export function estimateCostUsd(
   servedModel: string,
   requestedModel: AiModelId,
 ): number {
-  const info = AI_MODELS.find((m) => servedModel.startsWith(m.id)) ?? aiModelInfo(requestedModel)
+  const info =
+    AI_MODELS.find((m) => servedModel.startsWith(m.id)) ??
+    FALLBACK_PRICES.find((m) => servedModel.startsWith(m.id)) ??
+    aiModelInfo(requestedModel)
   if (!info) return 0
   return (usage.input_tokens * info.inputPerM + usage.output_tokens * info.outputPerM) / 1_000_000
+}
+
+/** 요청 한 번에 드는 토큰 수의 어림값(생각하는 데 쓰는 출력 토큰 포함). 요청하기 전에 요금을 보여 주는 데 쓴다. */
+export const TYPICAL_USAGE = {
+  /** 운동 추천: 종목 4~6개, 기록 6번씩 */
+  workout: { input_tokens: 4000, output_tokens: 2000 },
+  /** 운동 뒤 피드백: 종목 4~6개, 기록 4번씩 */
+  feedback: { input_tokens: 3000, output_tokens: 1500 },
+  /** 루틴 제안: 종목 목록 80여 개와 루틴 1~4개 */
+  routines: { input_tokens: 4500, output_tokens: 3000 },
+} as const
+
+/** 요청 한 번의 어림 요금. "$0.06" */
+export function typicalCostText(kind: keyof typeof TYPICAL_USAGE, model: AiModelId): string {
+  return formatUsd(estimateCostUsd(TYPICAL_USAGE[kind], model, model))
 }
 
 /** "$0.05", 1센트 미만이면 "$0.01 미만" */
@@ -76,6 +101,9 @@ export async function getAiUsage(now: number = Date.now()): Promise<AiUsage> {
 }
 
 export async function addAiUsage(costUsd: number, now: number = Date.now()): Promise<void> {
-  const cur = await getAiUsage(now)
-  await setSetting(SETTING_KEYS.aiUsage, { month: cur.month, calls: cur.calls + 1, costUsd: cur.costUsd + costUsd })
+  // 두 요청이 거의 같이 끝나도 하나가 빠지지 않게 읽고 쓰기를 한 번에 한다.
+  await db.transaction('rw', db.settings, async () => {
+    const cur = await getAiUsage(now)
+    await setSetting(SETTING_KEYS.aiUsage, { month: cur.month, calls: cur.calls + 1, costUsd: cur.costUsd + costUsd })
+  })
 }

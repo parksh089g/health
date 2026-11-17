@@ -347,7 +347,7 @@ describe('추천 적용', () => {
   it('오늘의 목표 횟수(루틴에서 온 값)를 쓴다', async () => {
     await record(10_000, BENCH, [[60, 8], [60, 8], [60, 6]])
     const id = await startWorkout(20_000)
-    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, () =>
+    await db.transaction('rw', db.workouts, db.workoutExercises, db.sets, db.exercises, () =>
       addExerciseWithPrefill(id, BENCH, 0, { setCount: 3, targetReps: 6 }),
     )
     const recs = await getWorkoutRecommendations(id)
@@ -411,6 +411,17 @@ describe('추천 적용', () => {
     const rec = { weightKg: 62.5, reps: 8, fromWeightKg: 60 }
     expect(setsToApply([s(55), s(57.5), s(60, true)], rec)).toHaveLength(2)
     expect(setsToApply([s(55), s(60), s(null)], rec).map((x) => x.weightKg)).toEqual([60, null])
+  })
+
+  it('적용한 세트를 끝낸 뒤에는 다시 눌러도 남은 가벼운 세트(백오프)를 바꾸지 않는다', () => {
+    const s = (weightKg: number | null, reps: number, isDone = false) => ({ weightKg, reps, isWarmup: false, isDone })
+    const rec = { weightKg: 72.5, reps: 5, fromWeightKg: 70 }
+    // 70/60/60에서 추천을 적용해 72.5로 맨 위 세트를 끝낸 상태
+    const sets = [s(72.5, 5, true), s(60, 8), s(60, 8)]
+    expect(setsToApply(sets, rec)).toEqual([])
+    expect(isRecommendationApplied(sets, rec)).toBe(true)
+    // 아직 끝내지 않았으면 전처럼 적용 전으로 본다.
+    expect(isRecommendationApplied([s(70, 5), s(60, 8), s(60, 8)], rec)).toBe(false)
   })
 
   it('맨몸 추천은 횟수만 바꾼다', async () => {

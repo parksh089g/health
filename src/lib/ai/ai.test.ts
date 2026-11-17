@@ -75,9 +75,9 @@ describe('운동 추천 요청 글', () => {
 
     const ctx = await buildWorkoutContext(today.id, NOW)
     expect(ctx.items.map((i) => i.key)).toEqual(['E1', 'E2', 'E3'])
-    expect(ctx.items[0]).toMatchObject({ workoutExerciseId: today.weIds[BENCH], fromWeightKg: 60, bodyweight: false })
-    expect(ctx.items[1]).toMatchObject({ fromWeightKg: null, bodyweight: true })
-    expect(ctx.items[2]).toMatchObject({ fromWeightKg: null, bodyweight: false })
+    expect(ctx.items[0]).toMatchObject({ workoutExerciseId: today.weIds[BENCH], fromWeightKg: 60, bodyweight: false, addedWeight: false })
+    expect(ctx.items[1]).toMatchObject({ fromWeightKg: null, bodyweight: true, addedWeight: false })
+    expect(ctx.items[2]).toMatchObject({ fromWeightKg: null, bodyweight: false, addedWeight: false })
 
     const p = ctx.prompt
     expect(p).toContain('오늘: 2026-11-16(월)')
@@ -101,9 +101,9 @@ describe('운동 추천 요청 글', () => {
 
 describe('운동 추천 답 읽기', () => {
   const items: WorkoutContextItem[] = [
-    { key: 'E1', workoutExerciseId: 'we-bench', fromWeightKg: 60, bodyweight: false },
-    { key: 'E2', workoutExerciseId: 'we-pull', fromWeightKg: null, bodyweight: true },
-    { key: 'E3', workoutExerciseId: 'we-squat', fromWeightKg: 100, bodyweight: false },
+    { key: 'E1', workoutExerciseId: 'we-bench', fromWeightKg: 60, bodyweight: false, addedWeight: false },
+    { key: 'E2', workoutExerciseId: 'we-pull', fromWeightKg: null, bodyweight: true, addedWeight: false },
+    { key: 'E3', workoutExerciseId: 'we-squat', fromWeightKg: 100, bodyweight: false, addedWeight: false },
   ]
 
   it('key를 종목으로 바꾸고 이상한 답은 버린다', () => {
@@ -124,6 +124,27 @@ describe('운동 추천 답 읽기', () => {
     expect(advice.exercises).toEqual([
       { workoutExerciseId: 'we-bench', weightKg: 62.5, reps: 8, reason: '지난번 모두 채웠어요', fromWeightKg: 60 },
       { workoutExerciseId: 'we-pull', weightKg: null, reps: 11, reason: '맨몸은 무게를 없앤다', fromWeightKg: null },
+    ])
+  })
+
+  it('추가 무게를 쓰는 맨몸 종목은 무게를 받고, 무게 없는 답도 받는다', () => {
+    const weighted: WorkoutContextItem[] = [
+      { key: 'E1', workoutExerciseId: 'we-pull', fromWeightKg: 10, bodyweight: true, addedWeight: true },
+      { key: 'E2', workoutExerciseId: 'we-dips', fromWeightKg: 5, bodyweight: true, addedWeight: true },
+    ]
+    const advice = parseWorkoutAdvice(
+      {
+        summary: '',
+        exercises: [
+          { key: 'E1', weightKg: 12.5, reps: 5, reason: '추가 무게를 올려요' },
+          { key: 'E2', weightKg: null, reps: 12, reason: '오늘은 맨몸으로 해요' },
+        ],
+      },
+      weighted,
+    )
+    expect(advice.exercises).toEqual([
+      { workoutExerciseId: 'we-pull', weightKg: 12.5, reps: 5, reason: '추가 무게를 올려요', fromWeightKg: 10 },
+      { workoutExerciseId: 'we-dips', weightKg: null, reps: 12, reason: '오늘은 맨몸으로 해요', fromWeightKg: 5 },
     ])
   })
 
@@ -359,6 +380,31 @@ describe('API 키와 백업', () => {
     await importBackup(backup)
     expect(await getAiApiKey()).toBe('sk-ant-mine')
     expect(await db.aiAdvice.count()).toBe(0)
+  })
+})
+
+describe('사용량 세기', () => {
+  it('답을 쓰지 못한 요청(잘림, 읽지 못함)도 요금이 들었으면 센다', async () => {
+    await setSetting(SETTING_KEYS.aiApiKey, 'sk-ant-test')
+    const today = await record(NOW, { [BENCH]: [[60, 8, { done: false }]] }, { finish: false })
+    askMock.mockRejectedValueOnce(new AiError('AI 답이 너무 길어 잘렸습니다. 다시 시도해 주세요.', 'truncated', undefined, 0.3))
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow('잘렸습니다')
+    expect(await getAiUsage()).toMatchObject({ calls: 1, costUsd: 0.3 })
+
+    // 답은 왔지만 쓸 수 있는 추천이 없을 때
+    askMock.mockResolvedValueOnce({ value: { summary: '', exercises: [] }, servedModel: 'claude-opus-5-5', costUsd: 0.05, inputTokens: 1, outputTokens: 1 })
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow(AiError)
+    expect((await getAiUsage()).calls).toBe(2)
+
+    // 요청이 가지 않은 오류(키 오류 등)는 세지 않는다.
+    askMock.mockRejectedValueOnce(new AiError('API 키가 맞지 않습니다.', 'auth'))
+    await expect(requestWorkoutAdvice(today.id, NOW)).rejects.toThrow('API 키')
+    expect((await getAiUsage()).calls).toBe(2)
+  })
+
+  it('고를 수 없는 대체 모델이 답하면 그 모델의 요금으로 어림한다', () => {
+    expect(estimateCostUsd({ input_tokens: 1_000_000, output_tokens: 0 }, 'claude-opus-4-8', 'claude-opus-5-5')).toBe(5)
+    expect(estimateCostUsd({ input_tokens: 1_000_000, output_tokens: 0 }, 'claude-opus-5-5', 'claude-opus-5-5')).toBe(4)
   })
 })
 

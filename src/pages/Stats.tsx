@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AiReviewCard } from '../components/AiReviewCard'
+import { BodyWeightCard } from '../components/BodyWeightCard'
 import { ChartReadout } from '../components/charts/ChartReadout'
 import { ChartTable } from '../components/charts/ChartTable'
 import { ColumnChart } from '../components/charts/ColumnChart'
@@ -13,6 +14,7 @@ import { MonthCalendar } from '../components/MonthCalendar'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { bodyPartLabel } from '../lib/exercises'
 import { formatTime, formatVolume } from '../lib/format'
+import { recordLabel } from '../lib/history'
 import {
   addMonths,
   bodyPartSets,
@@ -36,7 +38,7 @@ import { useNow } from '../lib/useNow'
 const WEEKS = 12
 const BODY_PART_DAYS = 28
 
-/** 통계 탭. 이번 달과 이번 주 요약, 주별 운동 횟수와 볼륨, 부위별 세트, 운동 달력, 종목 목록. */
+/** 통계 탭. 이번 달과 이번 주 요약, 체중, 주별 운동 횟수와 볼륨, 부위별 세트, 운동 달력, 종목 목록. */
 export default function Stats() {
   const now = useNow(60_000)
   const data = useLiveQuery(loadStatsData, [])
@@ -46,13 +48,17 @@ export default function Stats() {
       <h1 className="text-2xl font-bold text-ink">통계</h1>
       {data !== undefined &&
         (data.workouts.length === 0 ? (
-          <p className="mt-5 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
-            아직 끝낸 운동이 없습니다.
-            <br />
-            운동을 마치면 주별 기록, 부위별 세트, 운동 달력과
-            <br />
-            종목별 성장 그래프가 여기에 나타납니다.
-          </p>
+          <>
+            <p className="mt-5 rounded-2xl border border-dashed border-line p-5 text-center text-sm leading-relaxed text-muted">
+              아직 끝낸 운동이 없습니다.
+              <br />
+              운동을 마치면 주별 기록, 부위별 세트, 운동 달력과
+              <br />
+              종목별 성장 그래프가 여기에 나타납니다.
+            </p>
+            {/* 체중은 운동 기록이 없어도 적을 수 있다. */}
+            <BodyWeightCard now={now} />
+          </>
         ) : (
           <StatsBody data={data} now={now} />
         ))}
@@ -68,6 +74,7 @@ function StatsBody({ data, now }: { data: StatsData; now: number }) {
     <>
       <Overview data={data} weeks={weeks} thisMonth={thisMonth} />
       <AiReviewCard />
+      <BodyWeightCard now={now} />
       <WeeklyCard weeks={weeks} />
       <BodyPartCard data={data} now={now} />
       <CalendarCard data={data} now={now} />
@@ -319,7 +326,7 @@ function CalendarCard({ data, now }: { data: StatsData; now: number }) {
 }
 
 function ExerciseList({ data }: { data: StatsData }) {
-  const list = exerciseOverviews(data.sessionsByExercise)
+  const list = exerciseOverviews(data.sessionsByExercise, data.exercises)
   if (list.length === 0) return null
 
   return (
@@ -335,10 +342,12 @@ function ExerciseList({ data }: { data: StatsData }) {
             o.bestE1rm !== null
               ? { label: '추정 1RM', value: formatMetric('bestE1rm', o.bestE1rm) }
               : o.maxWeight !== null
-                ? { label: '최고 중량', value: formatMetric('topWeight', o.maxWeight) }
+                ? { label: recordLabel('maxWeight', ex), value: formatMetric('topWeight', o.maxWeight, ex) }
                 : o.maxReps !== null
                   ? { label: '최다 횟수', value: formatMetric('maxReps', o.maxReps) }
-                  : null
+                  : o.maxDuration !== null
+                    ? { label: '최장 시간', value: formatMetric('maxDuration', o.maxDuration) }
+                    : null
           return (
             <li key={o.exerciseId}>
               <Link
