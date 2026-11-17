@@ -187,8 +187,8 @@ export default function Settings() {
       <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label="백업">
         <h2 className="font-bold text-ink">백업</h2>
         <p className="mt-1 text-sm leading-relaxed text-muted">
-          기록은 이 폰의 브라우저에만 저장됩니다. 브라우저의 사이트 데이터를 지우면 기록도 함께 사라지니, 가끔 백업
-          파일을 받아 두세요.
+          기록은 이 폰의 브라우저에 저장됩니다. 브라우저의 사이트 데이터를 지우면 기록도 함께 사라지니, 가끔 백업
+          파일을 받아 두거나 위의 클라우드 백업을 켜 두세요.
         </p>
         <p className="mt-3 text-[15px] text-ink">
           마지막 백업:{' '}
