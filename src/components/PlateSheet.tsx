@@ -78,14 +78,15 @@ export function PlateSheet({ name, sets, onClose }: PlateSheetProps) {
           )}
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
+        {/* 세트 무게가 많아 길어져도 버튼은 늘 보이게 아래에 붙여 둔다. */}
+        <div className="sticky -bottom-5 -mx-5 mt-2 grid grid-cols-2 gap-2 bg-surface px-5 pb-5 pt-3">
           {/* 바 무게와 가진 원판은 설정 화면에서 바꾼다. 뒤로 가면 이 운동으로 돌아온다. */}
           <Link
             to="/settings"
             state={{ focus: 'plates' }}
             className="flex h-12 items-center justify-center rounded-xl bg-surface-2 text-base font-semibold text-ink active:opacity-80"
           >
-            바·원판 설정
+            바와 원판 설정
           </Link>
           <button
             type="button"

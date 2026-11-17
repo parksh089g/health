@@ -47,7 +47,7 @@ export async function run(phone) {
   const trays = main.locator('[data-superset]')
   const tray = (position) => main.locator(`[data-superset=${position}]`)
   const linkButton = (a, b) => page.getByRole('button', { name: `${a}, ${b} 슈퍼세트로 묶기`, exact: true })
-  const unlinkButton = (a, b) => page.getByRole('button', { name: `${a}, ${b} 슈퍼세트 풀기`, exact: true })
+  const unlinkButton = (a, b) => page.getByRole('button', { name: `${a}, ${b} 슈퍼세트 묶음 풀기`, exact: true })
   const doneButton = (name, n) => card(name).getByRole('button', { name: `${n}세트 완료`, exact: true })
 
   /** 주소에 있는 운동(또는 기록)의 종목 묶음을 저장소에서 읽는다. */
@@ -185,6 +185,15 @@ export async function run(phone) {
   // 묶지 않은 종목은 늘 쉰다.
   await doSet(SQUAT, 1, 80, 5)
   await visible(timer, '묶지 않은 종목은 세트마다 쉼')
+  await skipRest()
+  // 웜업 세트는 바퀴에 들지 않는다: 묶음의 앞 종목이어도 다음 종목으로 넘어가지 않고 쉰다.
+  await card(BENCH).getByRole('button', { name: '세트 추가' }).tap()
+  await card(BENCH).getByRole('button', { name: /^6세트 설정/ }).tap()
+  await page.getByRole('dialog', { name: '6세트 설정' }).getByRole('switch', { name: '웜업 세트' }).tap()
+  await page.getByRole('dialog').getByRole('button', { name: '닫기' }).tap()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await doSet(BENCH, 'W', 40, 8)
+  await visible(timer, '묶음 앞 종목의 웜업 세트를 완료하면 넘어가지 않고 쉼')
   await skipRest()
 
   // ───────── 셋을 묶기, 뒤쪽 종목에 남은 세트가 없으면 쉰다

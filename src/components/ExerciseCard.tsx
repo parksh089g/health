@@ -30,8 +30,8 @@ interface ExerciseCardProps {
   /** 이 운동에서 몇 번째 종목인지(0부터)와 종목 수. 위아래로 옮기는 버튼을 켜고 끄는 데 쓴다. */
   index: number
   count: number
-  /** 세트를 완료로 표시했을 때 */
-  onSetDone?: () => void
+  /** 세트를 완료로 표시했을 때(그 세트) */
+  onSetDone?: (set: SetEntry) => void
   /** 다음 무게 추천. 운동 중에만 보여 준다. 지난 기록이 없거나 추천을 꺼 두었으면 null */
   recommendation?: Recommendation | null
   /** 이 운동에서 새로 세운 기록(findNewRecords). 기록을 세운 세트에 PR 표시를 붙인다. */
@@ -72,6 +72,7 @@ export function ExerciseCard({
   const { we, exercise, sets, lastSets } = item
   const name = exercise?.name ?? '지워진 종목'
   const labels = setLabels(sets)
+  const lastWorking = lastSets.filter((s) => !s.isWarmup)
   const target = mode === 'active' ? knownTarget(item) : null
   const note = mode === 'active' ? (exercise?.note?.trim() ?? '') : ''
   // 시간 종목은 횟수 대신 버틴 시간(초)을 적고, 맨몸 종목의 무게는 몸에 더한 무게다(비우면 맨몸).
@@ -134,9 +135,10 @@ export function ExerciseCard({
             {target !== null && <> · 목표 {formatTarget(exercise, target)}</>}
           </p>
         )}
-        {mode === 'active' && lastSets.length > 0 && (
+        {/* 웜업은 빼고 본 세트만 보여 준다(웜업이 앞을 다 차지해 본 세트가 잘리지 않게). */}
+        {mode === 'active' && lastWorking.length > 0 && (
           <p className="mt-0.5 truncate text-sm text-muted">
-            지난번 {lastSets.map((s) => formatSetShort(s, textOptions)).join(' · ')}
+            지난번 {lastWorking.map((s) => formatSetShort(s, textOptions)).join(' · ')}
           </p>
         )}
         {/* 종목 메모(시트 높이, 그립 등). 여기서는 보기만 하고 종목 상세에서 고친다. */}

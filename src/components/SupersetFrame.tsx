@@ -83,7 +83,7 @@ function Joint({ linked, names, onToggle }: JointProps) {
       <button
         type="button"
         onClick={onToggle}
-        aria-label={`${names} ${linked ? '슈퍼세트 풀기' : '슈퍼세트로 묶기'}`}
+        aria-label={`${names} ${linked ? '슈퍼세트 묶음 풀기' : '슈퍼세트로 묶기'}`}
         className="group absolute left-1/2 top-1/2 z-[1] flex h-11 -translate-x-1/2 -translate-y-1/2 items-center px-4"
       >
         <span

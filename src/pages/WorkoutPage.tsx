@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import type { SetEntry } from '../db'
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AiWorkoutPanel } from '../components/AiWorkoutPanel'
@@ -11,7 +12,7 @@ import { getWorkoutAdvice } from '../lib/ai/advice'
 import { getAiModel } from '../lib/ai/models'
 import { formatClock } from '../lib/format'
 import { findNewRecords } from '../lib/history'
-import { isTimed } from '../lib/measure'
+import { isCardio, isTimed } from '../lib/measure'
 import { getWorkoutRecommendations } from '../lib/recommend'
 import { MISSING_EXERCISE_NAME } from '../lib/routines'
 import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
@@ -74,8 +75,13 @@ export default function WorkoutPage() {
   /**
    * 세트를 완료하면 휴식 타이머를 시작한다. 슈퍼세트에서는 한 바퀴를 마쳤을 때만 쉬고,
    * 그 전에는 쉬지 않고 다음 종목의 카드를 화면에 보여 준다. 유산소는 타이머를 시작하지 않는다.
+   * 웜업 세트는 바퀴에 들지 않으니, 묶음 안에서도 다음 종목으로 넘어가지 않고 그 종목의 휴식만큼 쉰다.
    */
-  const onSetDone = (item: WorkoutItem) => {
+  const onSetDone = (item: WorkoutItem, set: SetEntry) => {
+    if (set.isWarmup) {
+      if (!isCardio(item.exercise)) rest.start(item.exercise?.restSeconds)
+      return
+    }
     const next = afterSetDone(items, item.we.id)
     if (next.kind === 'rest') rest.start(next.restSeconds)
     if (next.kind !== 'next') return
@@ -148,7 +154,7 @@ export default function WorkoutPage() {
                   mode="active"
                   index={index}
                   count={items.length}
-                  onSetDone={() => onSetDone(item)}
+                  onSetDone={(set) => onSetDone(item, set)}
                   recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
                   records={records}
                   aiSuggestion={

@@ -22,7 +22,7 @@ interface SetStopwatchProps {
   /** 유산소 종목인지. 오래 하는 운동이라 재는 동안 화면을 켜 두지 않는다. */
   cardio: boolean
   /** 멈춰서 세트를 완료로 표시했을 때(세트의 완료 체크를 눌렀을 때와 같다) */
-  onDone?: () => void
+  onDone?: (set: SetEntry) => void
 }
 
 /** 이만큼 넘게 잰 시간은 취소할 때 한 번 더 묻는다(잘못 눌러 긴 유산소 시간을 날리지 않게). */
@@ -57,9 +57,18 @@ function StopwatchIcon() {
  */
 export function SetStopwatch({ sets, labels, targetSec, cardio, onDone }: SetStopwatchProps) {
   const stopwatch = useStopwatch()
+  const rest = useRestTimer()
   const running = stopwatch ? sets.findIndex((s) => s.id === stopwatch.setId) : -1
   if (stopwatch && running >= 0) {
-    return <RunningStopwatch stopwatch={stopwatch} name={setName(labels[running])} cardio={cardio} onDone={onDone} />
+    return (
+      <RunningStopwatch
+        stopwatch={stopwatch}
+        set={sets[running]}
+        name={setName(labels[running])}
+        cardio={cardio}
+        onDone={onDone}
+      />
+    )
   }
 
   const next = sets.findIndex((s) => !s.isDone)
@@ -69,8 +78,12 @@ export function SetStopwatch({ sets, labels, targetSec, cardio, onDone }: SetSto
     <button
       type="button"
       disabled={busy}
-      onClick={() => beginStopwatch(sets[next].id, targetSec)}
-      className="mt-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-soft text-[15px] font-semibold text-accent active:opacity-70 disabled:opacity-50"
+      onClick={() => {
+        // 쉬다가 바로 재기 시작했으면 휴식은 끝낸다(재는 중에 휴식 끝 알림이 울리지 않게).
+        rest.stop()
+        beginStopwatch(sets[next].id, targetSec)
+      }}
+      className="mt-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-soft text-[15px] font-semibold text-accent active:opacity-70 disabled:bg-surface-2 disabled:text-muted"
     >
       <StopwatchIcon />
       {busy ? '다른 종목의 시간을 재는 중' : `${setName(labels[next])} 시간 재기`}
@@ -80,13 +93,15 @@ export function SetStopwatch({ sets, labels, targetSec, cardio, onDone }: SetSto
 
 interface RunningStopwatchProps {
   stopwatch: Stopwatch
+  /** 재고 있는 세트 */
+  set: SetEntry
   /** 재고 있는 세트의 이름. "2세트", "웜업 세트" */
   name: string
   cardio: boolean
-  onDone?: () => void
+  onDone?: (set: SetEntry) => void
 }
 
-function RunningStopwatch({ stopwatch, name, cardio, onDone }: RunningStopwatchProps) {
+function RunningStopwatch({ stopwatch, set, name, cardio, onDone }: RunningStopwatchProps) {
   const now = useNow(250)
   const rest = useRestTimer()
   const [askCancel, setAskCancel] = useState(false)
@@ -103,7 +118,7 @@ function RunningStopwatch({ stopwatch, name, cardio, onDone }: RunningStopwatchP
     void recordTimedSet(taken.setId, taken.seconds)
     // 완료 체크를 눌렀을 때와 같게: 휴식 타이머가 가려지지 않게 키보드를 내리고 바깥에 알린다.
     if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur()
-    onDone?.()
+    onDone?.(set)
   }
 
   const cancel = () => {

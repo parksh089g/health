@@ -331,7 +331,7 @@ function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemo
           {index + 1}
         </span>
         <div className="min-w-0 flex-1 py-1">
-          <h3 className="truncate text-lg font-bold leading-snug text-ink">{name}</h3>
+          <h3 className="line-clamp-2 break-keep text-lg font-bold leading-snug text-ink">{name}</h3>
           {exercise ? (
             <p className="text-sm text-muted">
               {bodyPartLabel(exercise.bodyPart)} · {equipmentLabel(exercise.equipment)}

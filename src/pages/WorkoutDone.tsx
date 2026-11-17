@@ -111,7 +111,7 @@ export default function WorkoutDone() {
 
         {pending.length > 0 && (
           <section className="mt-4 rounded-2xl border border-line bg-surface p-4">
-            <p className="leading-relaxed text-ink">
+            <p className="break-keep leading-relaxed text-ink">
               완료 체크를 하지 않은 세트가 {pending.length}개 있습니다. 그대로 저장하면 이 세트는 기록에서 빠집니다.
             </p>
             <button
@@ -126,7 +126,7 @@ export default function WorkoutDone() {
 
         {doneSets.length === 0 ? (
           <section className="mt-4 rounded-2xl border border-line bg-surface p-4">
-            <p className="leading-relaxed text-ink">완료한 세트가 없어서 저장할 기록이 없습니다.</p>
+            <p className="break-keep leading-relaxed text-ink">완료한 세트가 없어서 저장할 기록이 없습니다.</p>
             <button
               type="button"
               onClick={backToWorkout}
@@ -202,7 +202,7 @@ function RunningStopwatchNotice({ stopwatch, name, onStop, onDrop }: RunningStop
   const now = useNow(1000)
   return (
     <section className="mt-4 rounded-2xl bg-accent-soft p-4" aria-label="재는 중인 스톱워치">
-      <p className="leading-relaxed text-ink">
+      <p className="break-keep leading-relaxed text-ink">
         {name} 시간을 아직 재고 있습니다{' '}
         <span className="font-bold tabular-nums">({formatClock(stopwatchElapsedMs(stopwatch, now))})</span>. 저장하면
         지금까지 잰 시간을 기록합니다.

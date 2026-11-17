@@ -23,7 +23,7 @@ interface SetRowProps {
   cardioMetric: CardioMetric | null
   /** 맨몸 종목이면 무게 칸이 추가 무게다. */
   addedWeight: boolean
-  onDone?: () => void
+  onDone?: (set: SetEntry) => void
   /** 이 세트로 새로 세운 기록의 이름. 비어 있으면 PR 표시가 없다. */
   recordLabels: string[]
 }
@@ -68,7 +68,7 @@ export function SetRow({
   /** 완료로 바뀐 뒤: 휴식 타이머가 가려지지 않게 키보드를 내리고 바깥에 알린다. */
   const afterDone = () => {
     if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur()
-    onDone?.()
+    onDone?.(set)
   }
 
   const toggleDone = () => {

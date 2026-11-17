@@ -244,6 +244,15 @@ export async function run(phone) {
     [...el.querySelectorAll('input')].filter((input) => input.scrollWidth > input.clientWidth + 1).map((input) => input.getAttribute('aria-label')),
   )
   check(clipped.length === 0, `폭 320px에서 값이 잘리지 않음${clipped.length ? ` (${clipped.join(', ')})` : ''}`)
+  // 네 자리 층수와 소수 둘째 자리 분도 잘리지 않는다
+  await fill(field(stepmill, 1, '층수'), 1234)
+  await fill(field(stepmill, 1, '시간'), 25.67)
+  const clippedLong = await stepmill.evaluate((el) =>
+    [...el.querySelectorAll('input')].filter((input) => input.scrollWidth > input.clientWidth + 1).map((input) => input.value),
+  )
+  check(clippedLong.length === 0, `폭 320px에서 1234층, 25.67분도 잘리지 않음${clippedLong.length ? ` (${clippedLong.join(', ')})` : ''}`)
+  await fill(field(stepmill, 1, '층수'), 120)
+  await fill(field(stepmill, 1, '시간'), 30)
   await touchTargets(phone, '스톱워치(폭 320px)', watch(plank))
   await shot('05-workout-narrow', { fullPage: true })
   await watch(plank).getByRole('button', { name: '시간 재기 취소' }).tap()

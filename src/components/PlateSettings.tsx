@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { formatKg } from '../lib/format'
 import { BAR_OPTIONS, BAR_RANGE, PLATE_OPTIONS, isBarWeight } from '../lib/plates'
 import { SETTING_KEYS, setSetting } from '../lib/settings'
@@ -14,9 +14,10 @@ export function PlateSettings() {
   const setup = usePlateSetup()
   const sectionRef = useRef<HTMLElement>(null)
   const [keepOne, setKeepOne] = useState(false)
-  // 원판 계산 창의 "바·원판 설정"으로 넘어왔으면 이 칸이 보이게 내려간다.
+  // 원판 계산 창의 "바와 원판 설정"으로 넘어왔으면 이 칸이 보이게 내려간다.
   // 위의 칸들이 저장된 값을 읽어 오며 높이가 바뀔 수 있어, 이 칸의 값이 읽힌 뒤에 한 번 더 맞춘다.
   const focus = (useLocation().state as { focus?: string } | null)?.focus === 'plates'
+  const navigate = useNavigate()
   const loaded = setup !== undefined
   useEffect(() => {
     if (focus) sectionRef.current?.scrollIntoView({ block: 'start' })
@@ -89,6 +90,16 @@ export function PlateSettings() {
       >
         {keepOne ? '원판은 하나 이상 켜 두어야 합니다.' : '한 장의 무게(kg)입니다. 없는 원판은 눌러서 끕니다.'}
       </p>
+      {/* 원판 계산 창에서 넘어왔으면 하던 운동으로 바로 돌아갈 수 있게 한다. */}
+      {focus && (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="mt-4 h-12 w-full rounded-xl bg-accent font-semibold text-on-accent active:opacity-80"
+        >
+          운동으로 돌아가기
+        </button>
+      )}
     </section>
   )
 }

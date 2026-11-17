@@ -422,7 +422,7 @@ function ExerciseList({ data }: { data: StatsData }) {
                     ? { label: '최장 시간', value: formatMetric('maxDuration', o.maxDuration, ex) }
                     : null
           return (
-            <li key={o.exerciseId}>
+            <li key={o.exerciseId} className="min-w-0">
               <Link
                 to={`/exercises/${o.exerciseId}`}
                 className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:bg-surface-2"
