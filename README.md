@@ -158,7 +158,7 @@ e2e/             화면 점검 시나리오와 도우미 (Playwright)
 Cloudflare 대시보드에서 이 저장소를 연결하면 `main` 브랜치가 바뀔 때마다 다시 배포됩니다. Workers와 Pages 어느 쪽으로도 올릴 수 있습니다.
 
 - **Workers**: 저장소의 `wrangler.jsonc`에 빌드 명령과 정적 파일 위치를 적어 두었습니다. 배포 명령은 기본값 `npx wrangler deploy` 그대로 두고, 빌드 명령은 비워 두면 됩니다(배포 전에 `npm run build`가 자동으로 실행됩니다). Worker 이름은 `wrangler.jsonc`의 `name`(`health`)과 맞춥니다. 다른 이름을 쓰려면 이 값을 바꿉니다.
-  `main`이 아닌 브랜치(PR)의 미리보기 빌드는 설정의 Builds, Previews Base 탭에서 따로 정합니다. Preview command는 기본값 `npx wrangler preview` 그대로 두고 빌드 명령은 비워 둡니다. 이 명령은 `wrangler.jsonc`에 `previews` 항목이 있어야 돌기 때문에 빈 항목을 넣어 두었습니다.
+  `main`이 아닌 브랜치(PR)의 미리보기 빌드는 설정의 Builds, Previews Base 탭에서 따로 정합니다. Preview command는 기본값 `npx wrangler preview` 그대로 두고 빌드 명령은 비워 둡니다. 이 명령은 `wrangler.jsonc`에 `previews` 항목이 있어야 돌기 때문에 빈 항목을 넣어 두었습니다. 미리보기 빌드가 "The name in your wrangler.jsonc file (health) must match the name of your Worker"로 실패하면 Preview command가 `npx wrangler versions upload`로 바뀌어 있는 것이니 `npx wrangler preview`로 되돌립니다.
 - **Pages**: 프레임워크 프리셋은 없음으로 두고 빌드 명령 `npm run build`, 빌드 출력 디렉터리 `dist`를 입력합니다. 이 경우 `wrangler.jsonc`는 쓰이지 않습니다.
 
 휴대폰에서는 배포할 때마다 새로 생기는 미리보기 주소가 아니라 `workers.dev`나 `pages.dev`로 끝나는 고정 주소(또는 연결한 내 도메인)를 열어 주세요.
