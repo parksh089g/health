@@ -6,16 +6,19 @@ import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
+import { SupersetFrame } from '../components/SupersetFrame'
 import { getWorkoutAdvice } from '../lib/ai/advice'
 import { getAiModel } from '../lib/ai/models'
 import { formatClock } from '../lib/format'
 import { findNewRecords } from '../lib/history'
 import { isTimed } from '../lib/measure'
 import { getWorkoutRecommendations } from '../lib/recommend'
+import { MISSING_EXERCISE_NAME } from '../lib/routines'
 import { getAiApiKey, getAiEnabled, getRecommendEnabled } from '../lib/settings'
+import { afterSetDone, linkWithNextExercise, supersetPositions, unlinkFromNextExercise } from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
 import { useNow } from '../lib/useNow'
-import { deleteWorkout, loadWorkoutDetail } from '../lib/workouts'
+import { deleteWorkout, loadWorkoutDetail, type WorkoutItem } from '../lib/workouts'
 import { useRestTimer } from '../rest/context'
 import { RestTimerBar } from '../rest/RestTimerBar'
 
@@ -23,6 +26,11 @@ import { RestTimerBar } from '../rest/RestTimerBar'
 function orEmpty<T>(promise: Promise<T>, empty: T): Promise<T> {
   return promise.catch(() => empty)
 }
+
+/** 종목 카드를 감싼 요소의 id. 슈퍼세트에서 다음 종목의 카드로 화면을 옮길 때 찾는다. */
+const cardId = (workoutExerciseId: string) => `workout-exercise-${workoutExerciseId}`
+
+const nameOf = (item: WorkoutItem) => item.exercise?.name ?? MISSING_EXERCISE_NAME
 
 /** 운동 진행 화면. 종목별로 세트를 입력하고 완료를 체크한다. */
 export default function WorkoutPage() {
@@ -61,6 +69,20 @@ export default function WorkoutPage() {
   if (detail.workout.endedAt !== null) return <Navigate to={`/history/${id}`} replace />
 
   const { workout, items } = detail
+  const positions = supersetPositions(items.map((item) => item.we))
+
+  /**
+   * 세트를 완료하면 휴식 타이머를 시작한다. 슈퍼세트에서는 한 바퀴를 마쳤을 때만 쉬고,
+   * 그 전에는 쉬지 않고 다음 종목의 카드를 화면에 보여 준다. 유산소는 타이머를 시작하지 않는다.
+   */
+  const onSetDone = (item: WorkoutItem) => {
+    const next = afterSetDone(items, item.we.id)
+    if (next.kind === 'rest') rest.start(next.restSeconds)
+    if (next.kind !== 'next') return
+    // 다음 종목으로 바로 넘어가니, 앞에서 돌던 휴식은 끝낸다(다음 종목을 하는 중에 알림이 울리지 않게).
+    rest.stop()
+    document.getElementById(cardId(next.workoutExerciseId))?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
 
   const cancel = async () => {
     rest.stop()
@@ -104,25 +126,38 @@ export default function WorkoutPage() {
           </p>
         )}
 
-        <div className="grid gap-3">
-          {items.map((item, index) => (
-            <ExerciseCard
-              key={item.we.id}
-              item={item}
-              mode="active"
-              index={index}
-              count={items.length}
-              onSetDone={() => {
-                // 유산소는 세트 사이에 쉬는 운동이 아니라 휴식 타이머를 시작하지 않는다.
-                if (item.exercise?.measure !== 'cardio') rest.start(item.exercise?.restSeconds)
-              }}
-              recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
-              records={records}
-              aiSuggestion={
-                ai.enabled ? advice?.exercises.find((e) => e.workoutExerciseId === item.we.id) ?? null : null
-              }
-            />
-          ))}
+        {/* 카드 사이의 틈에 슈퍼세트로 묶고 푸는 버튼이 있다. 묶인 카드는 한 바탕에 이어 담긴다. */}
+        <div>
+          {items.map((item, index) => {
+            const previous = index > 0 ? items[index - 1] : null
+            const linked = positions[index] === 'middle' || positions[index] === 'last'
+            return (
+              <SupersetFrame
+                key={item.we.id}
+                id={cardId(item.we.id)}
+                position={positions[index]}
+                previousName={previous ? nameOf(previous) : null}
+                name={nameOf(item)}
+                hint="마지막 종목 뒤에 쉽니다"
+                onToggleLink={() => {
+                  if (previous) void (linked ? unlinkFromNextExercise : linkWithNextExercise)(previous.we.id)
+                }}
+              >
+                <ExerciseCard
+                  item={item}
+                  mode="active"
+                  index={index}
+                  count={items.length}
+                  onSetDone={() => onSetDone(item)}
+                  recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
+                  records={records}
+                  aiSuggestion={
+                    ai.enabled ? advice?.exercises.find((e) => e.workoutExerciseId === item.we.id) ?? null : null
+                  }
+                />
+              </SupersetFrame>
+            )
+          })}
         </div>
 
         <button

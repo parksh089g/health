@@ -2,6 +2,7 @@ import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } 
 import { startOfWeek, toDateKey } from './format'
 import { newId } from './id'
 import { isSetEntered, isTimed, setSeconds } from './measure'
+import { cleanSupersetIds, cleanWorkoutSupersets, moveWithSupersets, writeSupersetIds } from './supersets'
 
 /** 지난 기록이 없는 종목을 추가할 때 만드는 빈 세트 수 */
 export const DEFAULT_SET_COUNT = 3
@@ -173,34 +174,42 @@ export async function addExercisesToWorkout(workoutId: string, exerciseIds: stri
       have.add(exerciseId)
       await addExerciseWithPrefill(workoutId, exerciseId, order++)
     }
+    // 새 종목은 묶지 않은 채 맨 뒤에 붙는다. 혼자 남아 있던 슈퍼세트 id가 있으면 이때 지운다.
+    await cleanWorkoutSupersets(workoutId)
   })
 }
 
-/** 운동에서 종목과 그 세트를 뺀다. */
+/** 운동에서 종목과 그 세트를 뺀다. 슈퍼세트에 종목이 하나만 남으면 그 묶음은 풀린다. */
 export async function removeWorkoutExercise(workoutExerciseId: string): Promise<void> {
   await db.transaction('rw', db.workoutExercises, db.sets, async () => {
+    const we = await db.workoutExercises.get(workoutExerciseId)
     await db.sets.where('workoutExerciseId').equals(workoutExerciseId).delete()
     await db.workoutExercises.delete(workoutExerciseId)
+    if (we) await cleanWorkoutSupersets(we.workoutId)
   })
 }
 
 /**
  * 운동 안에서 종목을 한 칸 위(-1)나 아래(1)로 옮긴다. 순서 값은 0부터 빈틈없이 다시 매긴다.
  * 맨 위에서 위로, 맨 아래에서 아래로는 아무것도 바꾸지 않고 false를 돌려준다.
+ * 슈퍼세트는 옮기는 것만으로 갈라지거나 옆 종목을 끌어들이지 않는다(lib/supersets.ts의 moveWithSupersets):
+ * 묶음 안에서는 자리만 바뀌고, 묶음 밖으로 나가면 묶음에서 빠지며, 옆의 다른 묶음은 통째로 건너뛴다.
  */
 export async function moveWorkoutExercise(workoutExerciseId: string, direction: -1 | 1): Promise<boolean> {
   return db.transaction('rw', db.workoutExercises, async () => {
     const we = await db.workoutExercises.get(workoutExerciseId)
     if (!we) return false
     const list = await db.workoutExercises.where('workoutId').equals(we.workoutId).sortBy('order')
-    const from = list.findIndex((x) => x.id === workoutExerciseId)
-    const to = from + direction
-    if (from < 0 || to < 0 || to >= list.length) return false
+    const moved = moveWithSupersets(
+      list,
+      list.findIndex((x) => x.id === workoutExerciseId),
+      direction,
+    )
+    if (moved === null) return false
 
-    const [moved] = list.splice(from, 1)
-    list.splice(to, 0, moved)
-    const changed = list.flatMap((x, i) => (x.order === i ? [] : [{ key: x.id, changes: { order: i } }]))
+    const changed = moved.items.flatMap((x, i) => (x.order === i ? [] : [{ key: x.id, changes: { order: i } }]))
     await db.workoutExercises.bulkUpdate(changed)
+    await writeSupersetIds(moved.items, moved.ids)
     return true
   })
 }
@@ -320,7 +329,7 @@ export async function deleteWorkout(workoutId: string): Promise<void> {
 }
 
 /**
- * 지난 운동과 같은 종목으로 새 운동을 시작한다.
+ * 지난 운동과 같은 종목으로 새 운동을 시작한다. 슈퍼세트 묶음도 그대로 따라간다(id는 새로 만든다).
  * 진행 중인 운동이 있으면 새로 만들지 않고 그 운동을 돌려준다.
  */
 export async function repeatWorkout(
@@ -334,11 +343,15 @@ export async function repeatWorkout(
     const id = newId()
     await db.workouts.add({ id, date: toDateKey(now), startedAt: now, endedAt: null, memo: '' })
     const source = await db.workoutExercises.where('workoutId').equals(sourceWorkoutId).sortBy('order')
-    let order = 0
-    for (const we of source) {
+    const supersetIds = cleanSupersetIds(
+      source.map((we) => we.supersetId),
+      { fresh: true },
+    )
+    for (const [order, we] of source.entries()) {
       // 목표 횟수(루틴에서 온 값)도 그대로 따라간다.
       const opts: PrefillOptions = we.targetReps === undefined ? {} : { targetReps: we.targetReps }
-      await addExerciseWithPrefill(id, we.exerciseId, order++, opts)
+      const weId = await addExerciseWithPrefill(id, we.exerciseId, order, opts)
+      if (supersetIds[order] !== null) await db.workoutExercises.update(weId, { supersetId: supersetIds[order] })
     }
     return { id, created: true }
   })

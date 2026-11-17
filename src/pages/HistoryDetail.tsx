@@ -6,8 +6,11 @@ import { Dialog } from '../components/Dialog'
 import { ExerciseCard } from '../components/ExerciseCard'
 import { PageHeader } from '../components/PageHeader'
 import { SaveAsRoutine } from '../components/SaveAsRoutine'
+import { SupersetFrame } from '../components/SupersetFrame'
 import { formatDay, formatDuration, formatTime, formatVolume } from '../lib/format'
 import { findNewRecords } from '../lib/history'
+import { MISSING_EXERCISE_NAME } from '../lib/routines'
+import { supersetPositions } from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
 import { deleteWorkout, loadWorkoutDetail, repeatWorkout, totalVolume, updateWorkoutMemo } from '../lib/workouts'
 
@@ -28,6 +31,7 @@ export default function HistoryDetail() {
   const { workout, items } = detail
   const endedAt = workout.endedAt ?? workout.startedAt
   const allSets = items.flatMap((item) => item.sets)
+  const positions = supersetPositions(items.map((item) => item.we))
 
   const repeat = async () => {
     const result = await repeatWorkout(id)
@@ -59,16 +63,17 @@ export default function HistoryDetail() {
         <MemoField key={workout.id} workoutId={workout.id} initial={workout.memo} />
         <AiFeedbackCard key={`ai-${workout.id}`} workoutId={workout.id} />
 
-        <div className="mt-3 grid gap-3">
+        {/* 슈퍼세트로 한 종목들은 묶음으로 보여 주기만 한다(묶고 푸는 것은 운동 중에만). */}
+        <div className="mt-3">
           {items.map((item, index) => (
-            <ExerciseCard
+            <SupersetFrame
               key={item.we.id}
-              item={item}
-              mode="history"
-              index={index}
-              count={items.length}
-              records={records}
-            />
+              position={positions[index]}
+              previousName={index > 0 ? (items[index - 1].exercise?.name ?? MISSING_EXERCISE_NAME) : null}
+              name={item.exercise?.name ?? MISSING_EXERCISE_NAME}
+            >
+              <ExerciseCard item={item} mode="history" index={index} count={items.length} records={records} />
+            </SupersetFrame>
           ))}
         </div>
 
