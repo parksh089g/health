@@ -12,7 +12,6 @@ import {
 import {
   afterSetDone,
   cleanSupersetIds,
-  cleanWorkoutSupersets,
   linkSupersetIds,
   linkWithNextExercise,
   moveWithSupersets,
@@ -429,7 +428,7 @@ describe('운동에서 묶고 옮기고 빼기', () => {
     expect(await strayIds(id)).toBe(0)
   })
 
-  it('운동을 마치면서 종목이 빠져 혼자 남은 id는 묶음으로 보지 않고, 다듬으면 지워진다', async () => {
+  it('운동을 마치면서 종목이 빠져 혼자 남은 id는 마칠 때 함께 지워진다', async () => {
     const id = await started([A, B])
     await linkWithNextExercise(await weIdOf(id, A))
     const [first] = (await loadWorkoutDetail(id))!.items[0].sets
@@ -437,8 +436,6 @@ describe('운동에서 묶고 옮기고 빼기', () => {
     await finishWorkout(id, { endedAt: 2_000 })
 
     expect(await layout(id)).toBe('ex-a')
-    expect(await strayIds(id)).toBe(1)
-    await cleanWorkoutSupersets(id)
     expect(await strayIds(id)).toBe(0)
   })
 

@@ -352,6 +352,8 @@ export async function finishWorkout(
     const keptWe = new Set(done.map((s) => s.workoutExerciseId))
     await db.sets.bulkDelete(sets.filter((s) => !s.isDone).map((s) => s.id))
     await db.workoutExercises.bulkDelete(wes.filter((we) => !keptWe.has(we.id)).map((we) => we.id))
+    // 완료한 세트가 없어 빠진 종목 때문에 혼자 남은 슈퍼세트 묶음을 정리한다.
+    await cleanWorkoutSupersets(workoutId)
 
     const changes: Partial<Workout> = { endedAt: opts.endedAt ?? Date.now() }
     if (opts.memo !== undefined) changes.memo = opts.memo.trim()

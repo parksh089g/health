@@ -300,7 +300,7 @@ export async function run(phone) {
   await shot('07-history-detail', { fullPage: true })
   await open('/history')
   await visible(page.getByText('스텝밀, 줄넘기, 플랭크'), '기록 목록에 종목 이름')
-  await visible(page.getByText(/3세트 · 0kg/), '기록 목록에 3세트')
+  await visible(page.getByText(/· 3세트$/), '기록 목록에 3세트(볼륨이 0이면 kg는 보이지 않음)')
 
   // ───────── 통계
   step('통계의 유산소')
