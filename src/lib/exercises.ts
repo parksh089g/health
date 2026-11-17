@@ -11,6 +11,7 @@ export const BODY_PARTS: { key: BodyPart; label: string }[] = [
   { key: 'shoulders', label: '어깨' },
   { key: 'arms', label: '팔' },
   { key: 'core', label: '코어' },
+  { key: 'cardio', label: '유산소' },
   { key: 'other', label: '기타' },
 ]
 

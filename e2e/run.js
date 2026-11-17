@@ -19,12 +19,16 @@ import { preview } from 'vite'
 import * as aiCoach from './ai-coach.js'
 import * as ai from './ai.js'
 import * as bodyBackup from './body-backup.js'
+import * as cardioStopwatch from './cardio-stopwatch.js'
 import * as exercisesRest from './exercises-rest.js'
 import { createChecks } from './lib/checks.js'
 import { openPhone } from './lib/phone.js'
 import * as measure from './measure.js'
+import * as platesWarmup from './plates-warmup.js'
 import * as routinesStats from './routines-stats.js'
 import * as smoke from './smoke.js'
+import * as supersets from './supersets.js'
+import * as weeklyGoal from './weekly-goal.js'
 import * as workoutCard from './workout-card.js'
 
 const SCENARIOS = {
@@ -36,6 +40,10 @@ const SCENARIOS = {
   'body-backup': bodyBackup,
   'ai-coach': aiCoach,
   measure,
+  'cardio-stopwatch': cardioStopwatch,
+  'plates-warmup': platesWarmup,
+  'weekly-goal': weeklyGoal,
+  supersets,
 }
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

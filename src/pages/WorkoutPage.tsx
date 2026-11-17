@@ -112,7 +112,10 @@ export default function WorkoutPage() {
               mode="active"
               index={index}
               count={items.length}
-              onSetDone={() => rest.start(item.exercise?.restSeconds)}
+              onSetDone={() => {
+                // 유산소는 세트 사이에 쉬는 운동이 아니라 휴식 타이머를 시작하지 않는다.
+                if (item.exercise?.measure !== 'cardio') rest.start(item.exercise?.restSeconds)
+              }}
               recommendation={recommendOn ? (recommendations.get(item.we.id) ?? null) : null}
               records={records}
               aiSuggestion={

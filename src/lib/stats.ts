@@ -150,6 +150,7 @@ export interface BodyPartCount {
 /**
  * 기간 [from, to) 안에 시작한 운동의 부위별 본 세트 수. 많은 것부터, 같으면 부위 목록 순서.
  * 세트가 없는 부위도 0으로 넣는다(기타는 세트가 있을 때만). 지워진 종목은 기타로 센다.
+ * 유산소는 근육 부위가 아니라 여기서 세지 않는다.
  */
 export function bodyPartSets(
   sessions: ExerciseSession[],
@@ -163,7 +164,8 @@ export function bodyPartSets(
     const part = exercises.get(s.we.exerciseId)?.bodyPart ?? 'other'
     counts.set(part, (counts.get(part) ?? 0) + workingSets(s.sets).length)
   }
-  return BODY_PARTS.map((b) => ({ bodyPart: b.key, label: b.label, sets: counts.get(b.key) ?? 0 }))
+  return BODY_PARTS.filter((b) => b.key !== 'cardio')
+    .map((b) => ({ bodyPart: b.key, label: b.label, sets: counts.get(b.key) ?? 0 }))
     .filter((b) => b.bodyPart !== 'other' || b.sets > 0)
     .sort((a, b) => b.sets - a.sets)
 }

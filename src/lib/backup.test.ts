@@ -195,7 +195,7 @@ describe('체중 기록 백업 (버전 3)', () => {
     await db.bodyWeights.put({ date: '2026-11-16', weightKg: 72.4, updatedAt: 1 })
     await db.sets.put({ id: 's-rpe', workoutExerciseId: 'we', order: 0, weightKg: 60, reps: 8, isWarmup: false, isDone: true, rpe: 8.5 })
     const file = parseBackup(JSON.stringify(await exportBackup()))
-    expect(file.version).toBe(3)
+    expect(file.version).toBe(BACKUP_VERSION)
     await db.bodyWeights.clear()
     await db.sets.clear()
     await importBackup(file)

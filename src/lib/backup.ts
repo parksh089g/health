@@ -15,9 +15,10 @@ export const BACKUP_FORMAT = 'health-log-backup'
 /**
  * 백업 파일 형식의 버전.
  * 1: MVP. 2: 루틴(routines)을 더했다. 3: 체중 기록(bodyWeights)을 더했다.
+ * 4: 유산소 종목과 세트의 거리, 층수, 강도, 슈퍼세트 묶음을 더했다(목록은 그대로이고 필드만 늘었다).
  * 예전 파일도 그대로 읽는다(없는 목록은 빈 목록).
  */
-export const BACKUP_VERSION = 3
+export const BACKUP_VERSION = 4
 
 export interface BackupData {
   exercises: Exercise[]
@@ -80,7 +81,9 @@ const isOptStr = (v: unknown): boolean => v === undefined || v === null || isStr
 const isOptBool = (v: unknown): boolean => v === undefined || isBool(v)
 
 function isRoutineItem(v: unknown): boolean {
-  return isRec(v) && isStr(v.exerciseId) && isNum(v.sets) && v.sets >= 1 && isNumOrNull(v.reps)
+  return (
+    isRec(v) && isStr(v.exerciseId) && isNum(v.sets) && v.sets >= 1 && isNumOrNull(v.reps) && isOptStr(v.supersetId)
+  )
 }
 
 function list(data: Rec, key: keyof BackupData, check: (r: Rec) => boolean, optional = false): Rec[] {
@@ -127,6 +130,7 @@ export function parseBackup(text: string): BackupFile {
       isOptNum(r.restSeconds) &&
       isOptStr(r.note) &&
       isOptStr(r.measure) &&
+      isOptStr(r.cardioMetric) &&
       isOptBool(r.archived),
   )
   const workouts = list(
@@ -149,7 +153,8 @@ export function parseBackup(text: string): BackupFile {
       isStr(r.exerciseId) &&
       isNum(r.order) &&
       isStr(r.memo) &&
-      isOptNum(r.targetReps),
+      isOptNum(r.targetReps) &&
+      isOptStr(r.supersetId),
   )
   const sets = list(
     d,
@@ -163,7 +168,10 @@ export function parseBackup(text: string): BackupFile {
       isBool(r.isWarmup) &&
       isBool(r.isDone) &&
       isOptNum(r.rpe) &&
-      isOptNum(r.durationSec),
+      isOptNum(r.durationSec) &&
+      isOptNum(r.distanceKm) &&
+      isOptNum(r.floors) &&
+      isOptNum(r.level),
   )
   const settings = list(d, 'settings', (r) => isStr(r.key))
   // 버전 1 백업에는 루틴이 없다.

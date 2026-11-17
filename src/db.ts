@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 
-export type BodyPart = 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core' | 'other'
+/** 'cardio'는 유산소(러닝머신, 스텝밀 등). (5단계) */
+export type BodyPart = 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core' | 'cardio' | 'other'
 
 export type Equipment = 'barbell' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight' | 'other'
 
@@ -24,8 +25,16 @@ export interface Exercise {
   restSeconds?: number | null
   /** 종목 메모(시트 높이, 그립 같은 세팅). 운동 중 카드에 보인다. (4단계) */
   note?: string | null
-  /** 세트를 무엇으로 재는지. 없으면 'reps'(횟수). 'time'이면 세트의 durationSec(초)를 쓴다. (4단계) */
-  measure?: 'reps' | 'time' | null
+  /**
+   * 세트를 무엇으로 재는지. 없으면 'reps'(횟수). 'time'이면 세트의 durationSec(초)를 쓴다. (4단계)
+   * 'cardio'는 유산소: 세트의 durationSec(초)와, cardioMetric에 따라 distanceKm나 floors를 쓴다. (5단계)
+   */
+  measure?: 'reps' | 'time' | 'cardio' | null
+  /**
+   * 유산소 종목에서 시간과 함께 적는 값. 'distance'는 거리(km), 'floors'는 오른 층수(스텝밀).
+   * 없으면 시간만 적는다. 유산소 종목이 아니면 쓰지 않는다. (5단계)
+   */
+  cardioMetric?: 'distance' | 'floors' | null
   /** 숨긴 종목. 기록이 있는 종목은 지우는 대신 숨겨서 종목 선택에 나오지 않게 한다. (4단계) */
   archived?: boolean
 }
@@ -52,6 +61,11 @@ export interface WorkoutExercise {
   memo: string
   /** 이 운동에서의 목표 횟수. 루틴으로 시작했을 때 루틴에서 가져온다. (2단계) */
   targetReps?: number | null
+  /**
+   * 슈퍼세트 묶음의 id. 순서가 이어진 종목들이 같은 값을 가지면 번갈아 하는 한 묶음이다.
+   * 묶지 않은 종목은 없음. (5단계)
+   */
+  supersetId?: string | null
 }
 
 /** 세트 */
@@ -66,8 +80,14 @@ export interface SetEntry {
   isDone: boolean
   /** 힘든 정도(RPE) 6~10, 0.5 단위. 적지 않았으면 없음. (4단계) */
   rpe?: number | null
-  /** 시간으로 재는 종목(플랭크 등)의 버틴 시간(초). 그런 종목이 아니면 없음. (4단계) */
+  /** 시간으로 재는 종목(플랭크 등)의 버틴 시간(초), 유산소 종목의 운동 시간(초). 그런 종목이 아니면 없음. (4단계) */
   durationSec?: number | null
+  /** 유산소 종목의 거리(km). 거리를 적는 종목이 아니면 없음. (5단계) */
+  distanceKm?: number | null
+  /** 유산소 종목(스텝밀)에서 오른 층수. 층수를 적는 종목이 아니면 없음. (5단계) */
+  floors?: number | null
+  /** 유산소 기구의 강도(레벨이나 속도처럼 기구에 표시되는 숫자). 적지 않았으면 없음. (5단계) */
+  level?: number | null
 }
 
 /** 체중 기록. 하루에 하나만 둔다(같은 날 다시 적으면 덮어쓴다). (4단계) */
@@ -85,6 +105,8 @@ export interface RoutineItem {
   sets: number
   /** 목표 횟수. 정하지 않았으면 null */
   reps: number | null
+  /** 슈퍼세트 묶음의 id. 이어진 종목들이 같은 값을 가지면 한 묶음이다. 묶지 않았으면 없음. (5단계) */
+  supersetId?: string | null
 }
 
 /** 루틴(종목 묶음). "하체 날"처럼 자주 하는 구성을 저장해 두고 한 번에 시작한다. (2단계) */
@@ -223,6 +245,7 @@ export class HealthDB extends Dexie {
     this.version(4).stores({
       bodyWeights: 'date',
     })
+    // 5단계(유산소, 슈퍼세트, 주간 목표, 원판 설정)는 인덱스가 아닌 필드와 설정 값만 더해서 스키마를 바꾸지 않았다.
   }
 }
 
