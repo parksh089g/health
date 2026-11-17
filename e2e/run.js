@@ -28,6 +28,7 @@ import * as platesWarmup from './plates-warmup.js'
 import * as routinesStats from './routines-stats.js'
 import * as smoke from './smoke.js'
 import * as supersets from './supersets.js'
+import * as sync from './sync.js'
 import * as weeklyGoal from './weekly-goal.js'
 import * as workoutCard from './workout-card.js'
 
@@ -44,6 +45,7 @@ const SCENARIOS = {
   'plates-warmup': platesWarmup,
   'weekly-goal': weeklyGoal,
   supersets,
+  sync,
 }
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

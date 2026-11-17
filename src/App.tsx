@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { HashRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { TabBar } from './components/TabBar'
+import { useAutoSync } from './lib/sync/useAutoSync'
 import BodyWeightLog from './pages/BodyWeightLog'
 import ExercisePicker from './pages/ExercisePicker'
 import History from './pages/History'
@@ -43,6 +44,8 @@ function ScrollToTop() {
 }
 
 export default function App() {
+  // 클라우드 백업이 켜져 있으면 바뀐 기록을 알아서 올린다.
+  useAutoSync()
   return (
     <RestTimerProvider>
       {/* 해시 주소(#/history)를 써서 어떤 정적 호스팅에 올려도 별도 설정 없이 동작한다. */}
