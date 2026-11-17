@@ -51,6 +51,11 @@ export interface Workout {
   memo: string
   /** 루틴으로 시작했으면 그 루틴의 id (2단계) */
   routineId?: string | null
+  /**
+   * 지난 운동을 나중에 적는 중이면, 마칠 때 끝난 시각으로 쓸 값. 지금 하는 운동은 없음.
+   * 이 값이 있으면 휴식 타이머, 스톱워치, 다음 무게 추천을 쓰지 않고, 지난번 기록도 그날 이전 것만 본다. (6단계)
+   */
+  pastEndAt?: number | null
 }
 
 /** 운동 안에서 한 종목과 그 순서 */

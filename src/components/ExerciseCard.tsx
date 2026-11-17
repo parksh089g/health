@@ -28,6 +28,10 @@ interface ExerciseCardProps {
   item: WorkoutItem
   /** active: 운동 중(완료 체크가 있다). history: 지난 기록 수정(모든 세트가 완료 상태). */
   mode: 'active' | 'history'
+  /**
+   * 지금 하는 운동인지. 지난 운동을 나중에 적을 때는 false로, 스톱워치를 감춘다(시간은 칸에 바로 적는다).
+   */
+  live?: boolean
   /** 이 운동에서 몇 번째 종목인지(0부터)와 종목 수. 위아래로 옮기는 버튼을 켜고 끄는 데 쓴다. */
   index: number
   count: number
@@ -60,6 +64,7 @@ function knownTarget(item: WorkoutItem): number | null {
 export function ExerciseCard({
   item,
   mode,
+  live = true,
   index,
   count,
   onSetDone,
@@ -206,7 +211,7 @@ export function ExerciseCard({
       </div>
 
       {/* 시간을 적는 종목(시간 종목, 유산소)은 스톱워치로 재서 적을 수 있다. 세트 줄은 좁아서 그 아래에 둔다. */}
-      {mode === 'active' && timed && (
+      {mode === 'active' && live && timed && (
         <SetStopwatch
           sets={sets}
           labels={labels}

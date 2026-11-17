@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Dialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { PrBadge } from '../components/PrBadge'
-import { formatClock, formatDuration, formatVolume } from '../lib/format'
+import { formatClock, formatDay, formatDuration, formatVolume } from '../lib/format'
 import { findNewRecords, formatRecordValue, recordLabel, type NewRecord } from '../lib/history'
 import { formatCardioTime, isCardio, isSetEntered, setSeconds } from '../lib/measure'
 import { stopwatchElapsedMs, type Stopwatch } from '../lib/stopwatch'
@@ -12,6 +12,7 @@ import { useNow } from '../lib/useNow'
 import {
   deleteWorkout,
   finishWorkout,
+  isPastWorkout,
   loadWorkoutDetail,
   markEnteredSetsDone,
   recordTimedSet,
@@ -42,6 +43,9 @@ export default function WorkoutDone() {
   if (detail.workout.endedAt !== null) return <Navigate to={`/history/${id}`} replace />
 
   const backToWorkout = () => navigate(`/workout/${id}`, { replace: true })
+  // 지난 운동은 적을 때 고른 시작 시각과 운동 시간으로 끝난 시각이 정해져 있다.
+  const past = isPastWorkout(detail.workout)
+  const endedAt = past ? (detail.workout.pastEndAt as number) : openedAt
 
   const allSets = detail.items.flatMap((item) => item.sets)
   const doneSets = allSets.filter((s) => s.isDone)
@@ -70,7 +74,7 @@ export default function WorkoutDone() {
     if (saving) return
     setSaving(true)
     await stopTiming()
-    const ok = await finishWorkout(id, { memo, endedAt: openedAt })
+    const ok = await finishWorkout(id, { memo, endedAt })
     if (!ok) {
       setSaving(false)
       return
@@ -87,11 +91,16 @@ export default function WorkoutDone() {
 
   return (
     <>
-      <PageHeader title="운동 완료" onBack={backToWorkout} backLabel="운동으로 돌아가기" />
+      <PageHeader
+        title={past ? '지난 운동 저장' : '운동 완료'}
+        subtitle={past ? formatDay(detail.workout.startedAt) : undefined}
+        onBack={backToWorkout}
+        backLabel={past ? '적던 화면으로 돌아가기' : '운동으로 돌아가기'}
+      />
 
       <main className="flex-1 px-4 pb-10 pt-4">
         <dl className="grid grid-cols-2 gap-2">
-          <Stat label="운동 시간" value={formatDuration(openedAt - detail.workout.startedAt)} />
+          <Stat label="운동 시간" value={formatDuration(endedAt - detail.workout.startedAt)} />
           <Stat label="총 볼륨" value={`${formatVolume(itemsVolume(detail.items))}kg`} />
           <Stat label="종목" value={`${doneExercises}개`} />
           <Stat label="완료한 세트" value={`${doneSets.length}개`} />
