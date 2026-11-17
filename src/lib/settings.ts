@@ -27,10 +27,19 @@ export const SETTING_KEYS = {
   barWeightKg: 'barWeightKg',
   /** 가진 원판의 무게 목록(kg). (5단계) */
   plates: 'plates',
+  /** 클라우드 백업의 복구 코드. 이 폰에만 둔다. (5단계) */
+  syncCode: 'syncCode',
+  /** 클라우드 백업의 진행 상태(마지막으로 올린 때, 서버의 버전 등). 이 폰에만 둔다. (5단계) */
+  syncState: 'syncState',
 } as const
 
 /** 이 폰에만 두고 백업 파일에는 넣지 않는 설정. 복원해도 이 폰의 값이 그대로 남는다. */
-export const DEVICE_ONLY_SETTING_KEYS: readonly string[] = [SETTING_KEYS.aiApiKey, SETTING_KEYS.aiUsage]
+export const DEVICE_ONLY_SETTING_KEYS: readonly string[] = [
+  SETTING_KEYS.aiApiKey,
+  SETTING_KEYS.aiUsage,
+  SETTING_KEYS.syncCode,
+  SETTING_KEYS.syncState,
+]
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const row = await db.settings.get(key)
