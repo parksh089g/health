@@ -353,6 +353,30 @@ export async function run(phone) {
   await visible(plank.getByRole('group', { name: '다음 무게 추천' }), '플랭크 추천은 그대로 나옴')
   await shot('10-next-workout', { fullPage: true })
 
+  // 스톱워치가 도는 채로 마치러 가면, 잰 시간을 버리지 않고 기록할 수 있다
+  step('스톱워치가 도는 채로 운동 마치기')
+  await startWatch(rope, 1).tap()
+  await visible(watch(rope), '줄넘기 스톱워치')
+  await page.getByRole('button', { name: '마치기' }).tap()
+  const running = page.getByRole('region', { name: '재는 중인 스톱워치' })
+  await visible(running, '운동 완료 화면에 재는 중인 스톱워치 안내')
+  await visible(running.getByText(/줄넘기 시간을 아직 재고 있습니다/), '어느 종목인지 보임')
+  await noOverflow('운동 완료(스톱워치가 도는 중)')
+  await shot('10b-done-with-stopwatch')
+  await running.getByRole('button', { name: '멈추고 기록' }).tap()
+  await hidden(running, '멈추면 안내가 사라짐')
+  await eventually(savedWatch, null, '스톱워치를 멈춤')
+  await eventually(
+    async () => {
+      const [first] = await setsOf('seed:jump-rope')
+      return first.isDone && first.durationSec >= 1 && first.durationSec < 60
+    },
+    true,
+    '지난번 값(12.5분) 대신 잰 시간을 완료로 기록',
+  )
+  await page.getByRole('button', { name: '운동으로 돌아가기' }).last().tap()
+  await visible(page.getByRole('heading', { name: '운동 중' }), '운동으로 돌아옴')
+
   // 스톱워치가 도는 채로 운동을 취소하면 스톱워치도 사라진다
   await startWatch(stepmill, 1).tap()
   await visible(watch(stepmill), '스텝밀 스톱워치')

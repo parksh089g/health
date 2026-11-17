@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { db } from '../db'
+import { db, type Exercise } from '../db'
 import { estimate1RM, type ExerciseSession } from './history'
 import {
   addMonths,
@@ -184,6 +184,28 @@ describe('부위별 세트', () => {
       ['core', 0],
     ])
     expect(result[0].label).toBe('가슴')
+  })
+
+  it('유산소로 재는 종목은 부위와 상관없이 빼고, 부위만 유산소인 종목은 기타로 센다', () => {
+    const range = lastDays(28, at(2026, 11, 16, 21))
+    const withCardio = new Map<string, Pick<Exercise, 'bodyPart' | 'measure'>>([
+      ['treadmill', { bodyPart: 'legs', measure: 'cardio' }],
+      ['burpee', { bodyPart: 'cardio', measure: null }],
+    ])
+    const result = bodyPartSets(
+      [
+        session('a', at(2026, 11, 2), 'treadmill', [[null, 1]]),
+        session('b', at(2026, 11, 3), 'burpee', [
+          [null, 15],
+          [null, 15],
+        ]),
+      ],
+      withCardio,
+      range,
+    )
+    expect(result.find((r) => r.bodyPart === 'legs')?.sets).toBe(0)
+    expect(result.find((r) => r.bodyPart === 'other')?.sets).toBe(2)
+    expect(result.some((r) => r.bodyPart === 'cardio')).toBe(false)
   })
 
   it('기록이 없으면 기타 없이 모두 0', () => {

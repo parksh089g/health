@@ -168,8 +168,17 @@ export function afterSetDone(
     if (later.sets.some((s) => !s.isDone)) return { kind: 'next', workoutExerciseId: later.we.id }
   }
   const exercise = items[index].exercise
-  if (exercise?.measure === 'cardio') return { kind: 'none' }
-  return { kind: 'rest', restSeconds: exercise?.restSeconds }
+  if (exercise?.measure !== 'cardio') return { kind: 'rest', restSeconds: exercise?.restSeconds }
+  // 유산소로 한 바퀴를 마쳤으면, 같은 묶음의 유산소가 아닌 종목(앞쪽 먼저)에 정해 둔 휴식만큼 쉰다.
+  // 묶음이 아니거나 묶음이 모두 유산소면 쉬지 않는다.
+  let start = index
+  while (positions[start] === 'middle' || positions[start] === 'last') start--
+  let end = index
+  while (positions[end] === 'first' || positions[end] === 'middle') end++
+  const members = items.slice(start, end + 1)
+  const before = members.slice(0, index - start).reverse()
+  const other = [...before, ...members.slice(index - start + 1)].find((m) => m.exercise?.measure !== 'cardio')
+  return other ? { kind: 'rest', restSeconds: other.exercise?.restSeconds } : { kind: 'none' }
 }
 
 /** 순서대로 읽은 운동의 종목들에서 supersetId가 달라진 것만 저장한다. 트랜잭션 안에서 부른다(workoutExercises). */

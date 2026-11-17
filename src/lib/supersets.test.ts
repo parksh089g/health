@@ -294,9 +294,23 @@ describe('세트를 완료한 뒤 휴식', () => {
     expect(afterSetDone([item('A', null, [false], cardio)], 'A')).toEqual({ kind: 'none' })
     const items = [item('A', 'g', [false], cardio), item('B', 'g', [false]), item('C', 'g', [true], cardio)]
     expect(afterSetDone(items, 'A')).toEqual({ kind: 'next', workoutExerciseId: 'B' })
-    expect(afterSetDone(items, 'C')).toEqual({ kind: 'none' })
+    // 유산소로 한 바퀴가 끝나면 묶음의 무게 종목(B)만큼 쉰다.
+    expect(afterSetDone(items, 'C')).toEqual({ kind: 'rest', restSeconds: undefined })
     // B 뒤에는 할 세트가 남은 종목이 없어서 B의 휴식을 시작한다.
     expect(afterSetDone(items, 'B')).toEqual({ kind: 'rest', restSeconds: undefined })
+  })
+
+  it('유산소로 끝나는 묶음은 무게 종목의 휴식만큼 쉬고, 모두 유산소인 묶음은 쉬지 않는다', () => {
+    const cardio = { bodyPart: 'cardio', measure: 'cardio' } as const
+    const bench = item('A', 'g', [true, false], { restSeconds: 90 })
+    const rope = item('B', 'g', [false, false], cardio)
+    expect(afterSetDone([bench, rope], 'A')).toEqual({ kind: 'next', workoutExerciseId: 'B' })
+    expect(afterSetDone([bench, rope], 'B')).toEqual({ kind: 'rest', restSeconds: 90 })
+    // 유산소가 앞이고 뒤 종목을 다 했으면 뒤 종목의 휴식을 쓴다.
+    const done = item('C', 'h', [true], { restSeconds: 45 })
+    expect(afterSetDone([item('D', 'h', [false], cardio), done], 'D')).toEqual({ kind: 'rest', restSeconds: 45 })
+    const allCardio = [item('E', 'k', [false], cardio), item('F', 'k', [false], cardio)]
+    expect(afterSetDone(allCardio, 'F')).toEqual({ kind: 'none' })
   })
 
   it('혼자 남은 id는 묶음이 아니고, 없는 종목이면 그냥 쉰다', () => {
