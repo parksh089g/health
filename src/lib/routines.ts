@@ -3,6 +3,7 @@ import { TARGET_REPS_RANGE } from './exercises'
 import { toDateKey } from './format'
 import { newId } from './id'
 import { isTimed, setSeconds, TARGET_SECONDS_RANGE } from './measure'
+import { cleanSupersetIds, withSupersetIds } from './supersets'
 import { DEFAULT_SET_COUNT, addExerciseWithPrefill, getActiveWorkout } from './workouts'
 
 /**
@@ -33,6 +34,7 @@ export interface RoutineInput {
 
 /**
  * 입력을 다듬고 확인한다. 이름의 앞뒤 공백을 지우고, 같은 종목이 두 번 있으면 처음 것만 남긴다.
+ * 슈퍼세트 묶음은 이어진 종목 둘 이상일 때만 남기고, 혼자 남은 id는 지운다(lib/supersets.ts).
  * 맞지 않는 값이 있으면 이유를 담아 오류를 던진다.
  * timedIds: 시간 종목의 id. 이 종목들의 reps는 목표 시간(초)으로 보고 범위를 확인한다.
  */
@@ -41,9 +43,12 @@ export function normalizeRoutineInput(input: RoutineInput, timedIds: ReadonlySet
   if (name === '') throw new Error('루틴 이름을 입력해 주세요.')
   if (name.length > ROUTINE_NAME_MAX) throw new Error(`루틴 이름은 ${ROUTINE_NAME_MAX}자까지 쓸 수 있습니다.`)
 
+  // 묶음은 종목을 빼기 전의 순서로 먼저 정한다(같은 종목이 빠지면서 떨어져 있던 종목들이 한 묶음이 되지 않게).
+  const supersetIds = cleanSupersetIds(input.items.map((item) => item.supersetId))
+  const keptSupersetIds: (string | null)[] = []
   const seen = new Set<string>()
   const items: RoutineItem[] = []
-  for (const item of input.items) {
+  for (const [index, item] of input.items.entries()) {
     if (typeof item.exerciseId !== 'string' || item.exerciseId === '') throw new Error('종목이 올바르지 않습니다.')
     if (seen.has(item.exerciseId)) continue
     seen.add(item.exerciseId)
@@ -61,9 +66,10 @@ export function normalizeRoutineInput(input: RoutineInput, timedIds: ReadonlySet
       )
     }
     items.push({ exerciseId: item.exerciseId, sets, reps })
+    keptSupersetIds.push(supersetIds[index])
   }
   if (items.length === 0) throw new Error('종목을 하나 이상 넣어 주세요.')
-  return { name, items }
+  return { name, items: withSupersetIds(items, cleanSupersetIds(keptSupersetIds)) }
 }
 
 /**
@@ -105,7 +111,8 @@ export function syncRoutineDraft(items: RoutineItem[], before: Exercise[], now: 
       next.push(item)
     }
   }
-  return changed ? next : items
+  // 종목이 빠져 하나만 남은 슈퍼세트는 푼다.
+  return changed ? withSupersetIds(next, cleanSupersetIds(next.map((item) => item.supersetId))) : items
 }
 
 /** 루틴을 만든다. 만든 루틴의 id를 돌려준다. */
@@ -181,6 +188,7 @@ export function summarizeNames(names: string[], max = 2): string {
 
 /**
  * 루틴으로 운동을 시작한다. 세트는 지난번 값으로 미리 채우고, 본 세트 수와 목표 횟수(시간 종목은 목표 시간)는 루틴을 따른다.
+ * 슈퍼세트 묶음도 따라간다(id는 운동마다 새로 만든다).
  * 지워진 종목은 건너뛴다. 진행 중인 운동이 있으면 아무것도 만들지 않고 그 운동을 돌려준다.
  */
 export async function startWorkoutFromRoutine(
@@ -197,14 +205,20 @@ export async function startWorkoutFromRoutine(
       const routine = await db.routines.get(routineId)
       if (!routine) throw new Error('루틴을 찾을 수 없습니다.')
       const exercises = await db.exercises.bulkGet(routine.items.map((item) => item.exerciseId))
-      const items = routine.items.filter((_, i) => exercises[i] !== undefined)
+      // 묶음을 먼저 정한 뒤에 지워진 종목을 뺀다. 빠진 종목의 위아래 종목이 없던 묶음으로 합쳐지지 않는다.
+      const grouped = withSupersetIds(routine.items, cleanSupersetIds(routine.items.map((item) => item.supersetId)))
+      const items = grouped.filter((_, i) => exercises[i] !== undefined)
       if (items.length === 0) throw new Error('이 루틴에 남아 있는 종목이 없습니다.')
+      const supersetIds = cleanSupersetIds(
+        items.map((item) => item.supersetId),
+        { fresh: true },
+      )
 
       const id = newId()
       await db.workouts.add({ id, date: toDateKey(now), startedAt: now, endedAt: null, memo: '', routineId })
-      let order = 0
-      for (const item of items) {
-        await addExerciseWithPrefill(id, item.exerciseId, order++, { setCount: item.sets, targetReps: item.reps })
+      for (const [order, item] of items.entries()) {
+        const weId = await addExerciseWithPrefill(id, item.exerciseId, order, { setCount: item.sets, targetReps: item.reps })
+        if (supersetIds[order] !== null) await db.workoutExercises.update(weId, { supersetId: supersetIds[order] })
       }
       await db.routines.update(routineId, { lastUsedAt: now })
       return { id, created: true }
@@ -221,12 +235,14 @@ function clamp(n: number, range: { min: number; max: number }): number {
  * 종목은 기록의 순서대로 넣고, 세트 수는 완료한 본 세트(웜업 제외) 수(최소 1),
  * 목표 횟수는 그 운동의 목표 횟수, 없으면 첫 완료 본 세트의 횟수로 정한다. 지워진 종목은 뺀다.
  * 시간 종목은 같은 방식으로 목표 시간(초)을 정한다(그 운동의 목표 시간, 없으면 첫 완료 본 세트의 시간).
+ * 슈퍼세트 묶음도 루틴에 담는다.
  */
 export async function saveWorkoutAsRoutine(workoutId: string, name: string, now: number = Date.now()): Promise<string> {
   const items = await db.transaction('r', [db.workouts, db.workoutExercises, db.sets, db.exercises], async () => {
     if (!(await db.workouts.get(workoutId))) throw new Error('운동 기록을 찾을 수 없습니다.')
     const wes = await db.workoutExercises.where('workoutId').equals(workoutId).sortBy('order')
     const exercises = await db.exercises.bulkGet(wes.map((we) => we.exerciseId))
+    const supersetIds = cleanSupersetIds(wes.map((we) => we.supersetId))
     const result: RoutineItem[] = []
     for (const [i, we] of wes.entries()) {
       if (!exercises[i]) continue
@@ -245,6 +261,8 @@ export async function saveWorkoutAsRoutine(workoutId: string, name: string, now:
         exerciseId: we.exerciseId,
         sets: clamp(working.length, ROUTINE_SETS_RANGE),
         reps: reps === null ? null : clamp(Math.round(reps), timed ? ROUTINE_SECONDS_RANGE : ROUTINE_REPS_RANGE),
+        // 지워진 종목이 빠져 혼자 남은 id는 createRoutine이 지운다.
+        supersetId: supersetIds[i],
       })
     }
     return result

@@ -5,6 +5,7 @@ import { Dialog } from '../components/Dialog'
 import { ExercisePickerList, PickerAddBar } from '../components/ExercisePickerList'
 import { ChevronRightIcon, PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
+import { SupersetFrame } from '../components/SupersetFrame'
 import { db, type Exercise, type Routine, type RoutineItem } from '../db'
 import { bodyPartLabel, equipmentLabel } from '../lib/exercises'
 import { isTimed, targetLabel } from '../lib/measure'
@@ -19,6 +20,14 @@ import {
   syncRoutineDraft,
   updateRoutine,
 } from '../lib/routines'
+import {
+  cleanSupersetIds,
+  linkSupersetIds,
+  moveWithSupersets,
+  supersetPositions,
+  unlinkSupersetIds,
+  withSupersetIds,
+} from '../lib/supersets'
 import { useGoBack } from '../lib/useGoBack'
 
 /** 루틴 만들기와 고치기. 주소의 id가 new면 새 루틴. */
@@ -71,6 +80,8 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
 
   const picking = searchParams.has(PICK_PARAM)
   const byId = new Map(exercises.map((e) => [e.id, e]))
+  const positions = supersetPositions(items)
+  const nameOf = (item: RoutineItem) => byId.get(item.exerciseId)?.name ?? MISSING_EXERCISE_NAME
   const dirty =
     name !== (routine?.name ?? '') || JSON.stringify(items) !== JSON.stringify(routine?.items ?? [])
 
@@ -112,20 +123,31 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
     setItems((cur) => cur.map((item, i) => (i === index ? { ...item, ...patch } : item)))
   }
 
+  // 슈퍼세트는 옮기거나 빼도 흐트러지지 않게 한다(규칙은 lib/supersets.ts, 운동 화면과 같다).
   const moveItem = (index: number, by: -1 | 1) => {
     setError(null)
     setItems((cur) => {
-      const to = index + by
-      if (to < 0 || to >= cur.length) return cur
-      const next = [...cur]
-      ;[next[index], next[to]] = [next[to], next[index]]
-      return next
+      const moved = moveWithSupersets(cur, index, by)
+      return moved ? withSupersetIds(moved.items, moved.ids) : cur
     })
   }
 
   const removeItem = (index: number) => {
     setError(null)
-    setItems((cur) => cur.filter((_, i) => i !== index))
+    setItems((cur) => {
+      const next = cur.filter((_, i) => i !== index)
+      return withSupersetIds(next, cleanSupersetIds(next.map((item) => item.supersetId)))
+    })
+  }
+
+  /** index번째 종목을 바로 위 종목과 슈퍼세트로 묶거나, 묶여 있으면 푼다. */
+  const toggleLink = (index: number) => {
+    setError(null)
+    setItems((cur) => {
+      const ids = cur.map((item) => item.supersetId)
+      const linked = cur[index].supersetId != null && cur[index].supersetId === cur[index - 1]?.supersetId
+      return withSupersetIds(cur, (linked ? unlinkSupersetIds : linkSupersetIds)(ids, index - 1))
+    })
   }
 
   const save = async () => {
@@ -194,18 +216,28 @@ function RoutineForm({ routine, exercises, onDeleted }: RoutineFormProps) {
             종목마다 세트 수와 목표 횟수를 정할 수 있습니다.
           </p>
         ) : (
-          <ol className="mt-2 grid gap-3">
+          <ol className="mt-2">
             {items.map((item, i) => (
-              <RoutineItemRow
+              <SupersetFrame
                 key={item.exerciseId}
-                index={i}
-                count={items.length}
-                item={item}
-                exercise={byId.get(item.exerciseId)}
-                onChange={(patch) => patchItem(i, patch)}
-                onMove={(by) => moveItem(i, by)}
-                onRemove={() => removeItem(i)}
-              />
+                as="li"
+                ariaLabel={nameOf(item)}
+                position={positions[i]}
+                previousName={i > 0 ? nameOf(items[i - 1]) : null}
+                name={nameOf(item)}
+                hint="마지막 종목 뒤에 쉽니다"
+                onToggleLink={() => toggleLink(i)}
+              >
+                <RoutineItemRow
+                  index={i}
+                  count={items.length}
+                  item={item}
+                  exercise={byId.get(item.exerciseId)}
+                  onChange={(patch) => patchItem(i, patch)}
+                  onMove={(by) => moveItem(i, by)}
+                  onRemove={() => removeItem(i)}
+                />
+              </SupersetFrame>
             ))}
           </ol>
         )}
@@ -292,7 +324,7 @@ function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemo
     'flex size-11 items-center justify-center rounded-xl text-ink active:bg-surface-2 disabled:text-muted disabled:opacity-40'
 
   return (
-    <li className="rounded-2xl border border-line bg-surface p-3" aria-label={name}>
+    <div className="rounded-2xl border border-line bg-surface p-3">
       <div className="flex items-start gap-2">
         <span className="mt-2.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-bold tabular-nums text-muted">
           {index + 1}
@@ -374,7 +406,7 @@ function RoutineItemRow({ index, count, item, exercise, onChange, onMove, onRemo
           />
         </div>
       </div>
-    </li>
+    </div>
   )
 }
 
