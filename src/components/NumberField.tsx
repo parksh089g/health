@@ -54,7 +54,7 @@ export function NumberField({
 
   return (
     <label
-      className={`flex h-12 min-w-0 items-center rounded-xl border border-line bg-bg px-2 focus-within:border-accent ${dimmed ? 'opacity-70' : ''}`}
+      className={`flex h-12 min-w-0 items-center rounded-xl border border-line bg-bg px-2 focus-within:border-accent max-[340px]:px-1.5 ${dimmed ? 'opacity-70' : ''}`}
     >
       <input
         ref={inputRef}
@@ -74,9 +74,9 @@ export function NumberField({
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
         }}
-        className="w-full min-w-0 bg-transparent text-right text-lg font-semibold tabular-nums text-ink outline-none placeholder:text-muted/60"
+        className="w-full min-w-0 bg-transparent text-right text-lg font-semibold max-[340px]:text-base tabular-nums text-ink outline-none placeholder:text-muted/60"
       />
-      <span className="ml-1 shrink-0 text-sm text-muted">{unit}</span>
+      <span className="ml-1 shrink-0 text-sm text-muted max-[340px]:ml-0.5 max-[340px]:text-xs">{unit}</span>
     </label>
   )
 }

@@ -15,7 +15,7 @@ export function WorkoutSummaryRow({ summary }: { summary: WorkoutSummary }) {
   return (
     <Link
       to={`/history/${workout.id}`}
-      className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:bg-surface-2"
+      className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:bg-surface-2"
     >
       <div className="min-w-0 flex-1">
         <p className="font-bold text-ink">{formatDay(workout.startedAt)}</p>

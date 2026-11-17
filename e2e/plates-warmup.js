@@ -4,7 +4,7 @@
 import { boxOf, touchTargets } from './lib/layout.js'
 import { readRow } from './lib/store.js'
 
-export const title = '원판 계산과 웜업 세트 만들기 (바·원판 설정, 한쪽 원판, 웜업 세트 넣기와 바꾸기)'
+export const title = '원판 계산과 웜업 세트 만들기 (바와 원판 설정, 한쪽 원판, 웜업 세트 넣기와 바꾸기)'
 
 /** 종목 카드(WorkoutExercise)의 세트를 저장소에서 순서대로 읽는다. */
 function storedSets(page, exerciseId) {
@@ -148,7 +148,7 @@ export async function run(phone) {
 
   // ───────── 설정에서 원판과 바 무게 바꾸기
   step('바와 원판 설정')
-  await sheet.getByRole('link', { name: '바·원판 설정' }).tap()
+  await sheet.getByRole('link', { name: '바와 원판 설정' }).tap()
   await visible(plateSettings, '설정의 바와 원판 칸')
   const settingsBox = await boxOf(plateSettings)
   check(settingsBox.top >= 0 && settingsBox.top < 300, `원판 창에서 넘어오면 바와 원판 칸이 보이는 곳에 있음 (위에서 ${settingsBox.top}px)`)
@@ -170,7 +170,7 @@ export async function run(phone) {
   await text(sheet, '원판 20, 15, 10, 5, 2.5, 1.25kg', '가진 원판 목록도 바뀜')
 
   // 바 무게: 15kg 버튼, 직접 입력
-  await sheet.getByRole('link', { name: '바·원판 설정' }).tap()
+  await sheet.getByRole('link', { name: '바와 원판 설정' }).tap()
   await plateSettings.getByRole('button', { name: '15kg', exact: true }).tap()
   await eventually(() => setting('barWeightKg'), 15, '바 무게 15kg 저장')
   const barInput = plateSettings.getByLabel('바 무게 직접 입력')
@@ -191,7 +191,7 @@ export async function run(phone) {
   await shot('05-plate-sheet-custom')
 
   // 원판은 하나 이상 켜 두어야 한다. 다시 기본(20kg 바, 원판 전부)으로 돌린다.
-  await sheet.getByRole('link', { name: '바·원판 설정' }).tap()
+  await sheet.getByRole('link', { name: '바와 원판 설정' }).tap()
   for (const kg of [20, 15, 10, 5, 2.5]) await plateToggle(kg).tap()
   await eventually(() => setting('plates'), [1.25], '원판을 하나만 남김')
   await plateToggle(1.25).tap()

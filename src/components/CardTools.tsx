@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { isCardio } from '../lib/measure'
 import { canWarmup } from '../lib/warmup'
 import type { WorkoutItem } from '../lib/workouts'
 import { PlateSheet } from './PlateSheet'
@@ -18,14 +19,15 @@ const FLAME =
 /**
  * 종목 카드 아래 "세트 추가" 옆에 놓이는 도구 버튼들.
  * - 웜업: 본 세트 무게로 웜업 세트를 만들어 넣는다. 운동 중에, 무게를 들고 횟수로 재는 종목에만 나온다.
- * - 원판: 바벨 종목에서 세트 무게마다 한쪽에 끼울 원판을 보여 준다.
+ * - 원판: 바벨 종목(유산소 제외)에서 세트 무게마다 한쪽에 끼울 원판을 보여 준다.
  * 둘 다 해당하지 않는 종목이면 아무것도 그리지 않아 "세트 추가"가 줄을 다 쓴다.
  */
 export function CardTools({ item, mode }: CardToolsProps) {
   const [open, setOpen] = useState<'warmup' | 'plates' | null>(null)
   const { exercise } = item
   const showWarmup = mode === 'active' && canWarmup(exercise)
-  const showPlates = exercise?.equipment === 'barbell'
+  // 유산소 종목은 무게를 적지 않으니 기구가 바벨이어도 원판 계산을 두지 않는다.
+  const showPlates = exercise?.equipment === 'barbell' && !isCardio(exercise)
   if (!showWarmup && !showPlates) return null
 
   const close = () => setOpen(null)

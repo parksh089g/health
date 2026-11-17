@@ -23,7 +23,7 @@ interface SetRowProps {
   cardioMetric: CardioMetric | null
   /** 맨몸 종목이면 무게 칸이 추가 무게다. */
   addedWeight: boolean
-  onDone?: () => void
+  onDone?: (set: SetEntry) => void
   /** 이 세트로 새로 세운 기록의 이름. 비어 있으면 PR 표시가 없다. */
   recordLabels: string[]
 }
@@ -68,7 +68,7 @@ export function SetRow({
   /** 완료로 바뀐 뒤: 휴식 타이머가 가려지지 않게 키보드를 내리고 바깥에 알린다. */
   const afterDone = () => {
     if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur()
-    onDone?.()
+    onDone?.(set)
   }
 
   const toggleDone = () => {
@@ -97,14 +97,15 @@ export function SetRow({
         ? { durationSec: value }
         : { reps: value }
     // 운동 중에 횟수(시간)를 지우면 완료 표시도 함께 푼다.
-    const clearsDone = mode === 'active' && set.isDone && (value ?? 0) <= 0
+    // 유산소의 분은 "0.5"를 치는 중에 0을 거치므로, 칸을 비웠을 때만 푼다.
+    const clearsDone = mode === 'active' && set.isDone && (cardio ? value === null : (value ?? 0) <= 0)
     void updateSet(set.id, clearsDone ? { ...amount, isDone: false } : amount)
   }
 
   return (
     <div className={`grid ${columns} items-center gap-2`}>
       <div className="relative">
-        {/* 번호를 누르면 이 세트의 설정 창(웜업, RPE, 삭제)이 열린다. 적어 둔 RPE(유산소는 강도)는 번호 아래에 보인다. */}
+        {/* 번호를 누르면 이 세트의 설정 창(웜업, RPE, 삭제)이 열린다. 적어 둔 RPE(없으면 유산소의 강도)는 번호 아래에 보인다. */}
         <button
           type="button"
           onClick={openSheet}
@@ -115,14 +116,15 @@ export function SetRow({
           }`}
         >
           <span className="text-base font-bold leading-5">{label}</span>
-          {level !== null ? (
+          {/* 강도는 지난 세트에서 이어 채워지므로, 이 세트에 고른 RPE가 있으면 그것을 먼저 보여 준다. */}
+          {rpe !== null ? (
+            <span className="text-[11px] font-semibold leading-3 tabular-nums">RPE {rpe}</span>
+          ) : level !== null ? (
             <span className="text-[11px] font-semibold leading-3 tabular-nums">강도 {formatKg(level)}</span>
-          ) : rpe === null ? (
+          ) : (
             <span aria-hidden="true" className="text-[11px] font-bold leading-3 tracking-widest text-muted">
               ···
             </span>
-          ) : (
-            <span className="text-[11px] font-semibold leading-3 tabular-nums">RPE {rpe}</span>
           )}
         </button>
         {/* 자리를 차지하지 않게 겹쳐 그려서, 표시가 생기거나 사라져도 세트 줄이 움직이지 않는다. */}

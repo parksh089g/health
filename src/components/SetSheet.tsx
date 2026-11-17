@@ -92,7 +92,7 @@ export function SetSheet({ open, set, label, addedWeight = false, cardio = false
         >
           <span className="min-w-0 flex-1">
             <span className="block font-semibold text-ink">웜업 세트</span>
-            <span className="block text-sm text-muted">볼륨 계산에서 빠집니다.</span>
+            <span className="block text-sm text-muted">{cardio ? '유산소 시간 합계에서 빠집니다.' : '볼륨 계산에서 빠집니다.'}</span>
           </span>
           <Toggle on={set.isWarmup} />
         </button>
@@ -139,7 +139,9 @@ export function SetSheet({ open, set, label, addedWeight = false, cardio = false
             </button>
           </div>
           <p className="mt-2 break-keep text-sm leading-snug text-muted">
-            10은 더 못 하는 정도, 9는 1회, 8은 2회 더 할 수 있는 정도입니다.
+            {cardio
+              ? '10은 더 못 하는 정도, 8은 조금 더 할 수 있는 정도, 6은 편하게 이어 갈 수 있는 정도입니다.'
+              : '10은 더 못 하는 정도, 9는 1회, 8은 2회 더 할 수 있는 정도입니다.'}
           </p>
         </div>
 

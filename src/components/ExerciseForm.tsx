@@ -45,9 +45,14 @@ export function ExerciseForm({
 }: ExerciseFormProps) {
   const [name, setName] = useState(initial.name)
   const [bodyPart, setBodyPart] = useState<BodyPart>(initial.bodyPart)
-  const [equipment, setEquipment] = useState<Equipment>(initial.equipment)
   // 부위를 유산소로 두고 연 폼(종목 선택에서 유산소만 보다가 추가할 때)은 유산소부터 고른 채로 시작한다.
   const [measure, setMeasure] = useState<Measure>(initial.measure ?? (initial.bodyPart === 'cardio' ? 'cardio' : 'reps'))
+  // 그때 기구가 처음 값(바벨) 그대로면 유산소를 고를 때처럼 머신으로 바꿔 둔다.
+  const [equipment, setEquipment] = useState<Equipment>(
+    initial.measure === undefined && initial.bodyPart === 'cardio' && initial.equipment === 'barbell'
+      ? 'machine'
+      : initial.equipment,
+  )
   const [cardioMetric, setCardioMetric] = useState<CardioMetric | null>(
     initial.cardioMetric === undefined ? 'distance' : initial.cardioMetric,
   )
