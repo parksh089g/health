@@ -1,7 +1,7 @@
 import { db, type Exercise, type SetEntry, type Workout, type WorkoutExercise } from '../db'
 import { incrementFor } from './exercises'
 import { getExerciseSessions, isWeighted, workingSets } from './history'
-import { formatSeconds, formatWeight, isTimed, setSeconds, usesAddedWeight } from './measure'
+import { formatSeconds, formatWeight, isCardio, isTimed, setSeconds, usesAddedWeight } from './measure'
 
 /**
  * 다음 무게 추천(규칙 기반). (2단계)
@@ -11,6 +11,7 @@ import { formatSeconds, formatWeight, isTimed, setSeconds, usesAddedWeight } fro
  *   못 채웠으면 W를 그대로. 같은 W에서 3번 연속 못 채웠으면 W의 약 90%로 낮춘다(증량 단위의 배수로 내림).
  * - 맨몸 종목: 지난번 가장 많이 한 횟수 + 1. 지난번에 추가 무게를 달았으면 그 추가 무게를 위의 규칙대로 올린다.
  * - 시간 종목: 지난번 가장 오래 버틴 시간 + 5초. 목표 시간을 못 채운 세트가 있었으면 목표 시간.
+ * - 유산소 종목: 추천하지 않는다(얼마나 할지는 그날 정하는 것이라 규칙으로 올리지 않는다).
  *
  * 3단계에서 LLM 추천을 더하더라도 이 규칙으로 돌아올 수 있게, 계산은 DB를 보지 않는 순수 함수(recommendNext)로 둔다.
  */
@@ -142,13 +143,14 @@ export function deloadWeight(weightKg: number, incrementKg: number): number {
  * 모두 없으면 지난번 W로 한 첫 세트의 횟수를 쓴다(즉 "W로 한 세트들이 모두 같은 횟수를 채웠는지"를 본다).
  *
  * 맨몸 종목도 세트를 보고 정한다. 지난번에 추가 무게를 단 세트가 있으면 그 추가 무게를 무게 종목과 같은 규칙으로 올리고,
- * 없으면 횟수를 1회 늘린다.
+ * 없으면 횟수를 1회 늘린다. 유산소 종목은 추천이 없다(null).
  */
 export function recommendNext(
   exercise: Pick<Exercise, 'bodyPart' | 'incrementKg' | 'targetReps' | 'measure'> & Partial<Pick<Exercise, 'equipment'>>,
   sessions: readonly RecommendSession[],
   todayTargetReps?: number | null,
 ): Recommendation | null {
+  if (isCardio(exercise)) return null
   if (isTimed(exercise)) return recommendTime(exercise, sessions, todayTargetReps)
   const added = usesAddedWeight(exercise)
   const ordered = sessions

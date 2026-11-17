@@ -74,6 +74,8 @@ describe('추정 1RM과 요약', () => {
       maxReps: null,
       maxDuration: null,
       totalDuration: 0,
+      totalDistance: 0,
+      totalFloors: 0,
       workingSetCount: 3,
     })
     expect(summarizeSession([s(null, 12), s(0, 15)])).toMatchObject({ topWeight: null, bestE1rm: null, volume: 0, maxReps: 15 })

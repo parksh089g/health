@@ -555,6 +555,8 @@ describe('개인 기록의 종류', () => {
       maxReps: null,
       maxDuration: 70,
       totalDuration: 100,
+      totalDistance: 0,
+      totalFloors: 0,
       workingSetCount: 2,
     })
   })

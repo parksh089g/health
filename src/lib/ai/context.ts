@@ -11,7 +11,17 @@ import {
   workingSets,
   type ExerciseSession,
 } from '../history'
-import { formatSeconds, formatTarget, formatWeight, isTimed, usesAddedWeight } from '../measure'
+import {
+  cardioSetParts,
+  formatSeconds,
+  formatTarget,
+  formatWeight,
+  isCardio,
+  isTimed,
+  setTextOptions,
+  usesAddedWeight,
+  type SetTextOptions,
+} from '../measure'
 import { formatRecommendation, getRecommendation } from '../recommend'
 import { getAiProfile } from '../settings'
 import { bodyPartSets, loadStatsData, weeklyTotals } from '../stats'
@@ -39,24 +49,24 @@ function dateLabel(ts: number): string {
   return `${toDateKey(ts)}(${WEEKDAYS[new Date(ts).getDay()]})`
 }
 
-type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'> & Pick<Partial<SetEntry>, 'rpe' | 'durationSec'>
-
-/** 세트를 글로 쓸 때의 종목 정보. addedWeight: 맨몸 종목이라 무게가 추가 무게인지 */
-interface SetTextOptions {
-  addedWeight?: boolean
-}
+type SetLike = Pick<SetEntry, 'weightKg' | 'reps' | 'isWarmup' | 'isDone'> &
+  Pick<Partial<SetEntry>, 'rpe' | 'durationSec' | 'distanceKm' | 'floors' | 'level'>
 
 /**
  * "60kg×8", "10회", 시간으로 재는 세트는 "45초". 힘든 정도를 적었으면 "60kg×8(RPE 8.5)".
- * 맨몸 종목의 추가 무게는 "+10kg×8"
+ * 맨몸 종목의 추가 무게는 "+10kg×8". 유산소 세트는 "30분 · 120층 · 강도 8"
  */
 function setText(s: SetLike, opts: SetTextOptions = {}): string {
+  const rpe = typeof s.rpe === 'number' && s.rpe >= 1 && s.rpe <= 10 ? `(RPE ${formatKg(s.rpe)})` : ''
+  if (opts.cardio) {
+    const parts = cardioSetParts(s, { level: true })
+    return parts.length > 0 ? `${parts.join(' · ')}${rpe}` : '빈 세트'
+  }
   const seconds = typeof s.durationSec === 'number' && s.durationSec > 0 ? Math.round(s.durationSec) : null
   if (s.weightKg === null && s.reps === null && seconds === null) return '빈 세트'
   const weighted = (s.weightKg ?? 0) > 0
   const reps = s.reps === null ? '?' : String(s.reps)
   const amount = seconds !== null ? formatSeconds(seconds) : weighted ? reps : `${reps}회`
-  const rpe = typeof s.rpe === 'number' && s.rpe >= 1 && s.rpe <= 10 ? `(RPE ${formatKg(s.rpe)})` : ''
   return `${weighted ? `${formatWeight(s.weightKg as number, opts.addedWeight)}×` : ''}${amount}${rpe}`
 }
 
@@ -100,12 +110,15 @@ export const ADDED_WEIGHT_NOTE = '추가 무게 사용'
 
 /**
  * 종목 머리말. 시간으로 재는 종목(플랭크 등)은 횟수 추천을 받지 않으므로 그렇게 적고, 목표 시간이 있으면 붙인다.
+ * 유산소 종목은 "유산소 종목"이라고만 적는다(목표와 증량 단위가 없다).
  * addedWeight: 맨몸 종목인데 오늘 세트나 지난 기록에 추가 무게가 있는지. 있으면 무게 종목처럼 증량 단위를 알려 준다.
  */
 function exerciseHeader(key: string, exercise: Exercise | undefined, target: number | null, addedWeight = false): string {
   if (!exercise) return `[${key}] 지워진 종목`
   const parts = [`${bodyPartLabel(exercise.bodyPart)}, ${equipmentLabel(exercise.equipment)}`]
-  if (isTimed(exercise)) {
+  if (isCardio(exercise)) {
+    parts.push('유산소 종목')
+  } else if (isTimed(exercise)) {
     parts.push('시간으로 재는 종목')
     if (target !== null) parts.push(`목표 ${formatTarget(exercise, target)}`)
   } else {
@@ -191,7 +204,7 @@ export interface WorkoutContext {
   items: WorkoutContextItem[]
 }
 
-/** 추천을 받지 않는 종목(시간으로 재는 종목)의 머리말에 key 대신 붙이는 글 */
+/** 추천을 받지 않는 종목(시간으로 재는 종목, 유산소 종목)의 머리말에 key 대신 붙이는 글 */
 export const NO_ADVICE_KEY = '추천 안 함'
 
 /**
@@ -244,7 +257,7 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
   const items: WorkoutContextItem[] = []
   for (const [i, we] of wes.entries()) {
     const exercise = exercises[i]
-    // 시간으로 재는 종목은 기록만 보여 주고 추천은 받지 않는다(무게×횟수 추천을 세트에 채울 수 없다).
+    // 시간으로 재는 종목과 유산소 종목은 기록만 보여 주고 추천은 받지 않는다(무게×횟수 추천을 세트에 채울 수 없다).
     const timed = isTimed(exercise)
     const key = timed ? NO_ADVICE_KEY : `E${items.length + 1}`
     const sets = await db.sets.where('workoutExerciseId').equals(we.id).sortBy('order')
@@ -255,7 +268,7 @@ export async function buildWorkoutContext(workoutId: string, now: number = Date.
     const rule = exercise ? await getRecommendation(we, exercise) : null
     const todayTop = Math.max(0, ...sets.filter((s) => !s.isWarmup).map((s) => s.weightKg ?? 0))
     const bodyweight = usesAddedWeight(exercise)
-    const textOpts = { addedWeight: bodyweight }
+    const textOpts = setTextOptions(exercise)
     // 맨몸 종목은 오늘 세트나 받은 지난 기록에 추가 무게가 있을 때만 무게 추천을 받는다.
     const addedWeight = bodyweight && !timed && (hasWeightedSet(sets) || history.some((s) => hasWeightedSet(s.sets)))
 
@@ -321,7 +334,7 @@ export async function buildReviewContext(now: number = Date.now()): Promise<stri
     const ex = data.exercises.get(id)
     const all = data.sessionsByExercise.get(id) ?? []
     const target = ex?.targetReps ? ` · 목표 ${formatTarget(ex, ex.targetReps)}` : ''
-    const textOpts = { addedWeight: usesAddedWeight(ex) }
+    const textOpts = setTextOptions(ex)
     lines.push(
       `${ex?.name ?? '지워진 종목'} (${ex ? bodyPartLabel(ex.bodyPart) : '기타'}${target}) · 최근 ${REVIEW_WEEKS}주 ${sessions.length}회, 전체 ${all.length}회`,
     )
@@ -364,8 +377,8 @@ export async function buildFeedbackContext(workoutId: string, now: number = Date
     const history = (await getExerciseSessions(we.exerciseId, { excludeWorkoutId: workoutId, before: workout.startedAt }))
       .slice(-FEEDBACK_HISTORY_SESSIONS)
 
-    const textOpts = { addedWeight: usesAddedWeight(exercise) }
-    const addedWeight = textOpts.addedWeight && (hasWeightedSet(sets) || history.some((s) => hasWeightedSet(s.sets)))
+    const textOpts = setTextOptions(exercise)
+    const addedWeight = textOpts.addedWeight === true && (hasWeightedSet(sets) || history.some((s) => hasWeightedSet(s.sets)))
     const target = we.targetReps ?? exercise?.targetReps ?? null
     blocks.push('', exerciseHeader(String(++count), exercise, target, addedWeight))
     const note = noteText(exercise)
@@ -411,7 +424,7 @@ export interface RoutineCandidate {
   /** 답에서 종목을 가리키는 짧은 이름("E1", "E2" …) */
   key: string
   exerciseId: string
-  /** 시간으로 재는 종목. 목표 횟수를 두지 않는다. */
+  /** 시간으로 재는 종목이나 유산소 종목. 목표 횟수를 두지 않는다. */
   timed: boolean
 }
 
@@ -457,10 +470,10 @@ export async function buildRoutineContext(request: string, now: number = Date.no
     const timed = isTimed(ex)
     const recent = (data.sessionsByExercise.get(ex.id) ?? []).filter((s) => s.workout.startedAt >= from)
     const parts = [`${key} ${ex.name} (${bodyPartLabel(ex.bodyPart)}, ${equipmentLabel(ex.equipment)})`]
-    if (timed) parts.push('시간으로 재는 종목')
+    if (timed) parts.push(isCardio(ex) ? '유산소 종목' : '시간으로 재는 종목')
     const lastSets = workingSets(recent.at(-1)?.sets ?? [])
     if (recent.length > 0) {
-      const textOpts = { addedWeight: usesAddedWeight(ex) }
+      const textOpts = setTextOptions(ex)
       const lastText = lastSets.map((s) => setText(s, textOpts)).join(', ')
       parts.push(`최근 ${REVIEW_WEEKS}주 ${recent.length}회${lastSets.length > 0 ? `, 마지막 ${lastText}` : ''}`)
     }

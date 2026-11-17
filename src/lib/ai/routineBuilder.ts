@@ -33,7 +33,7 @@ export const ROUTINE_SYSTEM = `당신은 개인용 헬스 기록 앱 안의 코�
 - "내 정보"(목표, 운동 경력, 주당 운동 목표, 참고할 점, 체중)가 있으면 따릅니다. 참고할 점에 적힌 부상이나 피하고 싶은 동작에 걸리는 종목은 넣지 않습니다.
 - 최근에 하던 종목은 이어 갈 수 있게 먼저 고려하고, 최근 부위별 세트 수에서 모자란 부위를 채웁니다. 기록이 없으면 누구나 하기 쉬운 기본 종목으로 짭니다.
 - 한 루틴은 보통 4~7종목으로 하고 큰 복합 종목을 앞에 둡니다. 한 루틴에 같은 종목을 두 번 넣지 않습니다.
-- sets는 본 세트 수(1~10), reps는 목표 횟수(1~50)입니다. "시간으로 재는 종목"은 reps를 null로 둡니다.
+- sets는 본 세트 수(1~10), reps는 목표 횟수(1~50)입니다. "시간으로 재는 종목"과 "유산소 종목"은 reps를 null로 둡니다. 유산소 종목은 보통 sets를 1로 둡니다.
 - 이미 저장한 루틴과 같은 구성은 피합니다. 요청이 그 루틴을 고쳐 달라는 것이면 고친 구성을 제안합니다.
 
 어떻게 쓸지:
@@ -106,7 +106,7 @@ export function parseRoutineProposals(raw: unknown, candidates: RoutineCandidate
       if (!intIn(it.sets, ROUTINE_SETS_RANGE)) continue
       if (it.reps !== null && !intIn(it.reps, PROPOSAL_REPS_RANGE)) continue
       seen.add(candidate.exerciseId)
-      // 시간으로 재는 종목에는 목표 횟수를 두지 않는다.
+      // 시간으로 재는 종목과 유산소 종목에는 목표 횟수를 두지 않는다.
       items.push({ exerciseId: candidate.exerciseId, sets: it.sets, reps: candidate.timed ? null : it.reps })
     }
     if (items.length === 0) continue
@@ -185,8 +185,9 @@ async function readDraftRow(): Promise<Extract<AiAdvice, { kind: 'routines' }> |
 }
 
 /**
- * 제안을 받은 뒤 종목을 시간으로 재게 바꿨으면 횟수 목표를 비운다.
- * (루틴에서 시간 종목의 reps는 목표 시간(초)으로 읽으므로, 그대로 두면 "30회"가 "30초"가 된다.)
+ * 제안을 받은 뒤 종목을 시간으로 재게(또는 유산소로) 바꿨으면 횟수 목표를 비운다.
+ * (루틴에서 시간 종목의 reps는 목표 시간(초)으로 읽으므로, 그대로 두면 "30회"가 "30초"가 된다. 유산소 종목에는 목표가 없다.)
+ * isTimed는 시간 종목과 유산소 종목을 모두 가리킨다.
  */
 function withoutRepsIfTimed(item: RoutineItem, exercise: Exercise | undefined): RoutineItem {
   return exercise && isTimed(exercise) && item.reps !== null ? { ...item, reps: null } : item
