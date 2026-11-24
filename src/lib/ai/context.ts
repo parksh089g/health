@@ -1,4 +1,5 @@
 import { db, type Exercise, type Routine, type SetEntry, type Workout } from '../../db'
+import { formatComposition, hasComposition } from '../bodyWeight'
 import { BODY_PARTS, bodyPartLabel, equipmentLabel, incrementFor } from '../exercises'
 import { formatDuration, formatKg, formatVolume, toDateKey } from '../format'
 import {
@@ -167,10 +168,13 @@ export async function bodyWeightLine(now: number = Date.now()): Promise<string |
     if (off <= WEIGHT_COMPARE_SLACK && (base === null || off < base.off)) base = { date: r.date, weightKg: r.weightKg, off }
   }
   const head = `체중: ${formatKg(latest.weightKg)}kg(${latest.date} 기록)`
-  if (!base) return head
+  // 체성분(골격근량, 체지방량)은 가장 최근에 잰 것을 붙인다.
+  const comp = rows.findLast(hasComposition)
+  const compText = comp ? `, 체성분(${comp.date} 측정): ${formatComposition(comp)}` : ''
+  if (!base) return head + compText
   const diff = Math.round((latest.weightKg - base.weightKg) * 10) / 10
   const change = diff === 0 ? '변화 없음' : `${diff > 0 ? '+' : ''}${formatKg(diff)}kg`
-  return `${head}, 약 4주 전 ${formatKg(base.weightKg)}kg(${base.date})에서 ${change}`
+  return `${head}, 약 4주 전 ${formatKg(base.weightKg)}kg(${base.date})에서 ${change}${compText}`
 }
 
 /** 모든 요청 글에 함께 넣는 "내 정보"(설정에 적은 목표와 상황, 최근 체중). 넣을 것이 없으면 빈 배열. */

@@ -4,7 +4,7 @@ import { BodyWeightDialog } from '../components/BodyWeightDialog'
 import { ChevronRightIcon, PlusIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import type { BodyWeight } from '../db'
-import { entryTime, formatWeightChange, listBodyWeights } from '../lib/bodyWeight'
+import { entryTime, formatComposition, formatWeightChange, listBodyWeights } from '../lib/bodyWeight'
 import { formatDay, formatKg, formatMonth, toDateKey } from '../lib/format'
 import { useGoBack } from '../lib/useGoBack'
 
@@ -49,7 +49,7 @@ export default function BodyWeightLog() {
           기록 추가
         </button>
         <p className="mt-2 break-keep text-xs leading-relaxed text-muted">
-          지난 날짜도 골라서 적을 수 있습니다. 하루에 하나만 남고, 같은 날 다시 적으면 바뀝니다.
+          지난 날짜도 골라서 적을 수 있고, 골격근량과 체지방량도 함께 적을 수 있습니다. 하루에 하나만 남고, 같은 날 다시 적으면 바뀝니다.
           {list.length > 1 && ' 체중 아래의 작은 숫자는 바로 앞 기록과의 차이입니다.'}
         </p>
 
@@ -71,10 +71,15 @@ export default function BodyWeightLog() {
                   <button
                     type="button"
                     onClick={() => setTarget({ date: entry.date, pickDate: false })}
-                    aria-label={`${formatDay(entryTime(entry))} ${formatKg(entry.weightKg)}kg. 고치거나 지우기`}
+                    aria-label={`${formatDay(entryTime(entry))} ${formatKg(entry.weightKg)}kg${formatComposition(entry) ? `, ${formatComposition(entry)}` : ''}. 고치거나 지우기`}
                     className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left active:bg-surface-2"
                   >
-                    <span className="min-w-0 flex-1 font-semibold text-ink">{formatDay(entryTime(entry))}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-ink">{formatDay(entryTime(entry))}</span>
+                      {formatComposition(entry) !== '' && (
+                        <span className="block truncate text-xs tabular-nums text-muted">{formatComposition(entry)}</span>
+                      )}
+                    </span>
                     <span className="shrink-0 text-right">
                       <span className="block font-semibold tabular-nums text-ink">{formatKg(entry.weightKg)}kg</span>
                       {diff !== null && (

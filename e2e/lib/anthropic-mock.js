@@ -6,7 +6,7 @@ const JSON_HEADERS = { ...CORS, 'content-type': 'application/json' }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** 스트리밍 답(SSE) 한 건의 본문. 글 블록은 두 조각으로 나눠 보내 이어 붙이는 것까지 본다. */
-function sseBody({ model, blocks, usage }) {
+function sseBody({ model, blocks, usage, stopReason = 'end_turn' }) {
   const event = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
   let out = event('message_start', {
     message: {
@@ -33,7 +33,7 @@ function sseBody({ model, blocks, usage }) {
     out += event('content_block_stop', { index })
   })
   out += event('message_delta', {
-    delta: { stop_reason: 'end_turn', stop_sequence: null },
+    delta: { stop_reason: stopReason, stop_sequence: null },
     usage: { output_tokens: usage.output_tokens },
   })
   out += event('message_stop', {})
@@ -97,11 +97,12 @@ export async function mockAnthropic(context) {
      * 요청 본문을 받아 객체를 돌려주는 함수를 준다.
      * blocks: 글 블록 하나가 아닌 답(대체 모델로 넘어간 경우 등)을 직접 줄 때.
      * hold: true면 답을 붙잡아 두고, 돌려준 함수를 부를 때 보낸다. 기다리는 동안의 화면을 시간에 쫓기지 않고 볼 때 쓴다.
+     * stopReason: 답이 끝난 까닭. 도구를 부르는 답이면 'tool_use'.
      */
-    replyWithMessage({ model, json, blocks, delayMs = 0, hold = false }) {
+    replyWithMessage({ model, json, blocks, delayMs = 0, hold = false, stopReason = 'end_turn' }) {
       const usage = { input_tokens: 3500, output_tokens: 1800 }
       const body = (answer) =>
-        sseBody({ model, blocks: blocks ?? [{ type: 'text', text: JSON.stringify(answer) }], usage })
+        sseBody({ model, blocks: blocks ?? [{ type: 'text', text: JSON.stringify(answer) }], usage, stopReason })
       let release = () => {}
       const held = hold ? new Promise((resolve) => (release = resolve)) : null
       replies.push({

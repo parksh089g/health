@@ -40,16 +40,16 @@ function loadSdk(): Promise<Sdk> {
 }
 
 /** 답이 끝까지 오지 않을 때 기다리는 최대 시간. 스트리밍이라 SDK의 timeout은 첫 응답까지만 본다. */
-const ANSWER_TIMEOUT_MS = 4 * 60_000
+export const ANSWER_TIMEOUT_MS = 4 * 60_000
 
-async function createClient(apiKey: string): Promise<{ Anthropic: Sdk; client: AnthropicClient }> {
+export async function createClient(apiKey: string): Promise<{ Anthropic: Sdk; client: AnthropicClient }> {
   const Anthropic = await loadSdk()
   // 사용자 자신의 키를 자신의 폰에서만 쓰는 앱이라 브라우저에서 바로 부른다.
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, timeout: 120_000, maxRetries: 1 })
   return { Anthropic, client }
 }
 
-function assertOnline(): void {
+export function assertOnline(): void {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new AiError('인터넷에 연결되어 있지 않습니다. 연결된 뒤 다시 시도해 주세요.', 'network')
   }
