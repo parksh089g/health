@@ -18,6 +18,7 @@ import { chromium } from 'playwright'
 import { preview } from 'vite'
 import * as aiCoach from './ai-coach.js'
 import * as ai from './ai.js'
+import * as aiSwap from './ai-swap.js'
 import * as ask from './ask.js'
 import * as assistedMachines from './assisted-machines.js'
 import * as pastWorkout from './past-workout.js'
@@ -43,6 +44,7 @@ const SCENARIOS = {
   'exercises-rest': exercisesRest,
   'body-backup': bodyBackup,
   'ai-coach': aiCoach,
+  'ai-swap': aiSwap,
   measure,
   'cardio-stopwatch': cardioStopwatch,
   'plates-warmup': platesWarmup,
