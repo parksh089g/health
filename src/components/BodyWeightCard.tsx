@@ -6,7 +6,9 @@ import {
   availableRanges,
   entriesInRange,
   entryTime,
+  formatComposition,
   formatWeightChange,
+  hasComposition,
   listBodyWeights,
   weightChange,
   type WeightRange,
@@ -41,6 +43,7 @@ export function BodyWeightCard({ now }: { now: number }) {
   const sel = series.at(selected)
   const change = weightChange(entries, now)
   const weights = series.map((e) => e.weightKg)
+  const latestComposition = entries.findLast(hasComposition)
 
   return (
     <section aria-labelledby="bodyweight-title" className="mt-3 rounded-2xl border border-line bg-surface p-4">
@@ -95,6 +98,12 @@ export function BodyWeightCard({ now }: { now: number }) {
               }
             />
           </div>
+          {latestComposition && (
+            <p className="mt-2 text-sm tabular-nums text-muted">
+              체성분 · {formatComposition(latestComposition)}
+              <span className="text-xs"> ({formatMonthDay(entryTime(latestComposition), now)})</span>
+            </p>
+          )}
           {series.length < 2 ? (
             <p className="mt-3 break-keep text-sm leading-relaxed text-muted">
               기록이 둘 이상 쌓이면 변화 그래프가 나타납니다.

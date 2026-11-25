@@ -3,8 +3,11 @@ import type { BodyWeight } from '../db'
 import {
   BODY_WEIGHT_DRAFT,
   BODY_WEIGHT_RANGE,
+  bodyFatPercent,
   bodyWeightDateError,
   bodyWeightError,
+  compositionError,
+  hasComposition,
   deleteBodyWeight,
   entryTime,
   parseBodyWeight,
@@ -35,6 +38,9 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 체성분 입력 칸. null이면 아직 손대지 않은 것(그날 적어 둔 값을 보여 준다).
+  const [muscleDraft, setMuscleDraft] = useState<string | null>(null)
+  const [fatDraft, setFatDraft] = useState<string | null>(null)
 
   const [today] = useState(() => toDateKey(Date.now()))
   const existing = entries.find((e) => e.date === date) ?? null
@@ -42,6 +48,22 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
   const nearby = existing ?? entries.findLast((e) => e.date < date) ?? entries.find((e) => e.date > date) ?? null
   const text = draft ?? (nearby ? formatKg(nearby.weightKg) : '')
   const value = parseBodyWeight(text)
+  // 체성분은 그날 적어 둔 값만 채운다(다른 날의 측정값이 오늘 것처럼 남지 않게).
+  const muscleText = muscleDraft ?? (existing?.muscleKg ? formatKg(existing.muscleKg) : '')
+  const fatText = fatDraft ?? (existing?.bodyFatKg ? formatKg(existing.bodyFatKg) : '')
+  const composition = { muscleKg: parseBodyWeight(muscleText), bodyFatKg: parseBodyWeight(fatText) }
+  const fatPercent = value !== null ? bodyFatPercent({ weightKg: value, bodyFatKg: composition.bodyFatKg }) : null
+  const [showComposition, setShowComposition] = useState(() => {
+    const first = entries.find((e) => e.date === initialDate)
+    return first ? hasComposition(first) : false
+  })
+
+  const changeComposition = (raw: string, set: (v: string) => void) => {
+    const next = raw.replace(',', '.')
+    if (!BODY_WEIGHT_DRAFT.test(next)) return
+    set(next)
+    setError(null)
+  }
 
   const change = (raw: string) => {
     const next = raw.replace(',', '.')
@@ -64,9 +86,20 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
       setError(problem)
       return
     }
+    // 숫자가 아닌 글이 남아 있으면(예: ".") 빈 칸으로 보지 않고 알린다.
+    if ((muscleText.trim() !== '' && composition.muscleKg === null) || (fatText.trim() !== '' && composition.bodyFatKg === null)) {
+      setError('체성분은 숫자로 적어 주세요.')
+      return
+    }
+    const compProblem = compositionError(value, composition)
+    if (compProblem !== null) {
+      setError(compProblem)
+      setShowComposition(true)
+      return
+    }
     setBusy(true)
     try {
-      await saveBodyWeight(date, value)
+      await saveBodyWeight(date, value, undefined, composition)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : '저장하지 못했습니다.')
@@ -112,6 +145,8 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
             max={today}
             onChange={(e) => {
               setDate(e.currentTarget.value)
+              setMuscleDraft(null)
+              setFatDraft(null)
               setError(null)
               setConfirmDelete(false)
             }}
@@ -161,6 +196,38 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
         </button>
       </div>
 
+
+      {showComposition ? (
+        <fieldset className="mt-3">
+          <legend className="text-sm font-semibold text-ink">체성분 (선택)</legend>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <CompositionField
+              label="골격근량"
+              value={muscleText}
+              onChange={(v) => changeComposition(v, setMuscleDraft)}
+              onEnter={() => void save()}
+            />
+            <CompositionField
+              label="체지방량"
+              value={fatText}
+              onChange={(v) => changeComposition(v, setFatDraft)}
+              onEnter={() => void save()}
+            />
+          </div>
+          <p className="mt-1 break-keep text-xs text-muted">
+            {fatPercent !== null ? `체지방률 ${formatKg(fatPercent)}% · ` : ''}인바디 같은 측정 결과를 적어 두면 AI가 함께 봅니다.
+          </p>
+        </fieldset>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowComposition(true)}
+          className="mt-3 h-11 w-full rounded-xl border border-dashed border-line text-sm font-semibold text-accent active:opacity-70"
+        >
+          골격근량, 체지방량도 적기
+        </button>
+      )}
+
       {error !== null ? (
         <p role="alert" className="mt-2 text-sm text-danger">
           {error}
@@ -177,5 +244,39 @@ export function BodyWeightDialog({ entries, date: initialDate, pickDate = false,
         </p>
       )}
     </Dialog>
+  )
+}
+
+function CompositionField({
+  label,
+  value,
+  onChange,
+  onEnter,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  onEnter: () => void
+}) {
+  return (
+    <label className="flex h-12 min-w-0 items-center gap-1 rounded-xl border border-line bg-bg px-3 focus-within:border-accent">
+      <span className="shrink-0 text-sm text-muted">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        enterKeyHint="done"
+        autoComplete="off"
+        aria-label={`${label}(kg)`}
+        placeholder="—"
+        value={value}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => onChange(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onEnter()
+        }}
+        className="w-full min-w-0 bg-transparent text-right text-lg font-bold tabular-nums text-ink outline-none placeholder:text-muted/60"
+      />
+      <span className="shrink-0 text-sm text-muted">kg</span>
+    </label>
   )
 }

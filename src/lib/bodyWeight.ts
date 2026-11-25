@@ -3,6 +3,7 @@ import { formatKg, toDateKey } from './format'
 
 /**
  * 체중 기록. (4단계)
+ * 골격근량과 체지방량(체성분)을 함께 적을 수 있다(선택).
  * 하루에 하나만 둔다. 날짜(로컬 시간 기준 YYYY-MM-DD)가 키라서 같은 날 다시 적으면 덮어쓴다.
  */
 
@@ -57,13 +58,81 @@ export function bodyWeightDateError(date: string, now: number = Date.now()): str
   return null
 }
 
-/** 그날의 체중을 적는다. 그날 기록이 이미 있으면 덮어쓴다. */
-export async function saveBodyWeight(date: string, weightKg: number, now: number = Date.now()): Promise<BodyWeight> {
+/** 체성분(골격근량, 체지방량). 적지 않은 값은 null */
+export interface BodyComposition {
+  muscleKg: number | null
+  bodyFatKg: number | null
+}
+
+export const MUSCLE_RANGE = { min: 5, max: 150 } as const
+export const BODY_FAT_RANGE = { min: 0.5, max: 200 } as const
+
+/**
+ * 저장할 수 없는 체성분이면 그 이유, 괜찮으면 null. 둘 다 적지 않아도 된다.
+ * 소수 첫째 자리까지, 골격근량과 체지방량은 각각 체중보다 작고 둘을 더해도 체중을 넘지 않아야 한다.
+ */
+export function compositionError(weightKg: number, c: BodyComposition): string | null {
+  const check = (v: number | null, name: string, range: { min: number; max: number }): string | null => {
+    if (v === null) return null
+    if (!Number.isFinite(v) || v < range.min || v > range.max) return `${name}은 ${range.min}~${range.max}kg로 적어 주세요.`
+    if (Math.abs(v * 10 - Math.round(v * 10)) > 1e-6) return `${name}은 소수 첫째 자리까지 적어 주세요.`
+    if (v >= weightKg) return `${name}은 체중보다 작아야 합니다.`
+    return null
+  }
+  const e = check(c.muscleKg, '골격근량', MUSCLE_RANGE) ?? check(c.bodyFatKg, '체지방량', BODY_FAT_RANGE)
+  if (e !== null) return e
+  if (c.muscleKg !== null && c.bodyFatKg !== null && c.muscleKg + c.bodyFatKg >= weightKg) {
+    return '골격근량과 체지방량을 더한 값이 체중보다 작아야 합니다.'
+  }
+  return null
+}
+
+/** 체지방률(%, 소수 첫째 자리). 체지방량이 없으면 null */
+export function bodyFatPercent(entry: Pick<BodyWeight, 'weightKg' | 'bodyFatKg'>): number | null {
+  const fat = entry.bodyFatKg
+  if (typeof fat !== 'number' || !(fat > 0) || !(entry.weightKg > 0)) return null
+  return Math.round((fat / entry.weightKg) * 1000) / 10
+}
+
+/** 체성분을 적은 기록인지 */
+export function hasComposition(entry: Pick<BodyWeight, 'muscleKg' | 'bodyFatKg'>): boolean {
+  return (typeof entry.muscleKg === 'number' && entry.muscleKg > 0) || (typeof entry.bodyFatKg === 'number' && entry.bodyFatKg > 0)
+}
+
+/** "골격근 32.1kg · 체지방 14.2kg(19.6%)". 체성분을 적지 않았으면 빈 글 */
+export function formatComposition(entry: Pick<BodyWeight, 'weightKg' | 'muscleKg' | 'bodyFatKg'>): string {
+  const parts: string[] = []
+  if (typeof entry.muscleKg === 'number' && entry.muscleKg > 0) parts.push(`골격근 ${formatKg(entry.muscleKg)}kg`)
+  const pct = bodyFatPercent(entry)
+  if (pct !== null) parts.push(`체지방 ${formatKg(entry.bodyFatKg as number)}kg(${formatKg(pct)}%)`)
+  return parts.join(' · ')
+}
+
+/**
+ * 그날의 체중을 적는다. 그날 기록이 이미 있으면 덮어쓴다.
+ * composition을 주면 체성분도 그 값으로 바꾸고(null은 지움), 주지 않으면 그날 적어 둔 체성분을 그대로 둔다.
+ */
+export async function saveBodyWeight(
+  date: string,
+  weightKg: number,
+  now: number = Date.now(),
+  composition?: BodyComposition,
+): Promise<BodyWeight> {
   const error = bodyWeightDateError(date, now) ?? bodyWeightError(weightKg)
   if (error !== null) throw new Error(error)
-  const row: BodyWeight = { date, weightKg: Math.round(weightKg * 10) / 10, updatedAt: now }
-  await db.bodyWeights.put(row)
-  return row
+  const weight = Math.round(weightKg * 10) / 10
+  return db.transaction('rw', db.bodyWeights, async () => {
+    const prev = await db.bodyWeights.get(date)
+    const comp: BodyComposition = composition ?? { muscleKg: prev?.muscleKg ?? null, bodyFatKg: prev?.bodyFatKg ?? null }
+    // 체중만 고쳤는데 예전 체성분과 맞지 않게 되면(체중이 더 작아짐) 체성분 쪽의 오류로 알린다.
+    const compError = compositionError(weight, comp)
+    if (compError !== null) throw new Error(compError)
+    const row: BodyWeight = { date, weightKg: weight, updatedAt: now }
+    if (comp.muscleKg !== null) row.muscleKg = Math.round(comp.muscleKg * 10) / 10
+    if (comp.bodyFatKg !== null) row.bodyFatKg = Math.round(comp.bodyFatKg * 10) / 10
+    await db.bodyWeights.put(row)
+    return row
+  })
 }
 
 export async function deleteBodyWeight(date: string): Promise<void> {

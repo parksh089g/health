@@ -17,6 +17,7 @@ import { RestTimerProvider } from './rest/RestTimerProvider'
 // 차트가 있는 화면은 처음 열 때 따로 불러온다(첫 화면을 가볍게). 오프라인에서도 미리 받아 둔 파일로 열린다.
 const Stats = lazy(() => import('./pages/Stats'))
 const ExerciseDetail = lazy(() => import('./pages/ExerciseDetail'))
+const AskRecords = lazy(() => import('./pages/AskRecords'))
 
 /** 아래에 탭이 있는 화면(홈, 기록, 설정)의 틀 */
 function TabLayout() {
@@ -69,6 +70,7 @@ export default function App() {
               <Route path="routines" element={<Routines />} />
               <Route path="routines/:id" element={<RoutineEditor />} />
               <Route path="body-weight" element={<BodyWeightLog />} />
+              <Route path="ask" element={<AskRecords />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

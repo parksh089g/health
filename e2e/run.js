@@ -19,6 +19,7 @@ import { preview } from 'vite'
 import * as aiCoach from './ai-coach.js'
 import * as ai from './ai.js'
 import * as aiSwap from './ai-swap.js'
+import * as ask from './ask.js'
 import * as assistedMachines from './assisted-machines.js'
 import * as pastWorkout from './past-workout.js'
 import * as bodyBackup from './body-backup.js'
@@ -52,6 +53,7 @@ const SCENARIOS = {
   sync,
   'assisted-machines': assistedMachines,
   'past-workout': pastWorkout,
+  ask,
 }
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { AiAskCard } from '../components/AiAskCard'
 import { AiReviewCard } from '../components/AiReviewCard'
 import { BodyWeightCard } from '../components/BodyWeightCard'
 import { ChartReadout } from '../components/charts/ChartReadout'
@@ -61,6 +62,7 @@ export default function Stats() {
             </p>
             {/* 체중은 운동 기록이 없어도 적을 수 있다. */}
             <BodyWeightCard now={now} />
+            <AiAskCard />
           </>
         ) : (
           <StatsBody data={data} now={now} />
@@ -77,6 +79,7 @@ function StatsBody({ data, now }: { data: StatsData; now: number }) {
     <>
       <Overview data={data} weeks={weeks} thisMonth={thisMonth} />
       <AiReviewCard />
+      <AiAskCard />
       <BodyWeightCard now={now} />
       <WeeklyCard weeks={weeks} />
       <CardioCard data={data} now={now} />

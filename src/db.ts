@@ -101,6 +101,10 @@ export interface BodyWeight {
   /** 로컬 시간 기준 YYYY-MM-DD (이 값이 id) */
   date: string
   weightKg: number
+  /** 골격근량(kg). 인바디 같은 체성분 측정을 했을 때만 적는다. 없으면 없음. */
+  muscleKg?: number | null
+  /** 체지방량(kg). 체지방률은 이 값과 체중으로 계산한다. 없으면 없음. */
+  bodyFatKg?: number | null
   updatedAt: number
 }
 
