@@ -15,6 +15,7 @@ import {
 } from '../lib/measure'
 import type { Recommendation } from '../lib/recommend'
 import { addSet, moveWorkoutExercise, removeWorkoutExercise, type WorkoutItem } from '../lib/workouts'
+import { AiSwapButton } from './AiSwapButton'
 import { CardTools } from './CardTools'
 import { Dialog } from './Dialog'
 import { ChevronRightIcon, PlusIcon } from './icons'
@@ -233,6 +234,8 @@ export function ExerciseCard({
         </button>
         {/* 웜업 세트 만들기, 원판 계산 같은 도구 버튼이 들어가는 자리 */}
         <CardTools item={item} mode={mode} />
+        {/* AI 대체 종목 추천. 지금 하는 운동에서만 쓴다(지난 운동을 적을 때는 필요 없다). */}
+        {mode === 'active' && live && <AiSwapButton item={item} />}
       </div>
 
       <Dialog
